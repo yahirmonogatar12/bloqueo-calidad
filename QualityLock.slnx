@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QualityLock.Api/QualityLock.Api.csproj" />
+    <Project Path="src/QualityLock.Application/QualityLock.Application.csproj" />
+    <Project Path="src/QualityLock.Client.WinForms/QualityLock.Client.WinForms.csproj" />
+    <Project Path="src/QualityLock.Domain/QualityLock.Domain.csproj" />
+    <Project Path="src/QualityLock.Infrastructure/QualityLock.Infrastructure.csproj" />
+    <Project Path="src/QualityLock.Shared/QualityLock.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/QualityLock.Api.IntegrationTests/QualityLock.Api.IntegrationTests.csproj" />
+    <Project Path="tests/QualityLock.Application.Tests/QualityLock.Application.Tests.csproj" />
+  </Folder>
+</Solution>

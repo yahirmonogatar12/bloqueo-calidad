@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────
+# QualityLock — .gitignore
+# ─────────────────────────────────────────────────────────────
+
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+*.dll
+*.exe
+*.pdb
+
+# Logs
+logs/
+*.log
+
+# Secrets & local configuration (never commit real credentials)
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.local.json
+*.user
+*.secret
+secrets.json
+
+# Local runtime data
+bypass.json
+client-state.json
+operator-cache.json
+event-queue.jsonl
+
+# IDE / tooling
+.history/
+.vs/
+.vscode/
+.idea/
+*.suo
+*.userprefs
+*.cache
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store

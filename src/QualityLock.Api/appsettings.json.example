@@ -1,0 +1,41 @@
+{
+  "//": "PLANTILLA — copie a appsettings.Development.json (gitignored) para desarrollo local,",
+  "//_2": "o defina estas claves como variables de entorno en producción. NUNCA ponga secretos reales aquí.",
+
+  "Serilog": {
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft": "Warning",
+        "System": "Warning"
+      }
+    }
+  },
+
+  "//ConnectionStrings": "Env var equivalente: ConnectionStrings__MySQL",
+  "ConnectionStrings": {
+    "MySQL": "Server=HOST;Port=3306;Database=mes_production;Uid=USER;Pwd=PASSWORD;"
+  },
+
+  "//Jwt": "SigningKey debe tener >= 32 bytes. Env vars: Jwt__SigningKey, Jwt__Issuer, Jwt__Audience",
+  "Jwt": {
+    "Issuer": "QualityLock.Api",
+    "Audience": "QualityLock.Clients",
+    "SigningKey": "GENERE-UNA-CLAVE-ALEATORIA-DE-AL-MENOS-32-BYTES",
+    "AccessTokenMinutes": 720
+  },
+
+  "//Auth": "Clave que las estaciones presentan para obtener un token JWT. Env var: Auth__ClientApiKey",
+  "Auth": {
+    "ClientApiKey": "GENERE-UNA-CLAVE-DE-CLIENTE-FUERTE"
+  },
+
+  "//Admin": "Quién es admin, por ROL (usuario_roles→roles). MinRoleLevel=nivel mínimo; Roles=nombres extra. Env vars: Admin__MinRoleLevel, Admin__Roles__0, ...",
+  "Admin": {
+    "MinRoleLevel": 3,
+    "Roles": [],
+    "ManualUnlockRoles": [ "superadmin", "admin", "Tecnico QA" ]
+  },
+
+  "AllowedHosts": "*"
+}
