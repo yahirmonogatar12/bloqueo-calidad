@@ -110,7 +110,8 @@ public class AdminPanelForm : Form
             null,
             reasonType,
             _txtComments.Text.Trim(),
-            DateTime.UtcNow));
+            DateTime.UtcNow,
+            Line: _api.Line));
 
         _lblResult.ForeColor = result?.Approved == true ? Color.Green : Color.Red;
         _lblResult.Text = result?.Message ?? "Sin respuesta del servidor.";

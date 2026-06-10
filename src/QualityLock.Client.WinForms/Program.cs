@@ -31,6 +31,7 @@ static class Program
             .Build();
 
         var stationCode  = config["StationCode"] ?? string.Empty;
+        var line         = config["Linea"] ?? string.Empty;
         var apiBaseUrl   = config["ApiBaseUrl"]   ?? "http://localhost:5080/";
         var hmacSecret   = config["BypassHmacSecret"] ?? "CHANGE-THIS-SECRET-IN-PRODUCTION";
         var clientApiKey = config["ClientApiKey"]
@@ -57,7 +58,7 @@ static class Program
             BaseAddress = new Uri(apiBaseUrl),
             Timeout     = TimeSpan.FromSeconds(5)
         };
-        var api        = new ApiClientService(http, stationCode, clientApiKey);
+        var api        = new ApiClientService(http, stationCode, clientApiKey) { Line = line };
         var localState = new LocalStateService();
         var bypass     = new BypassService(hmacSecret);
         var adminPin   = new AdminPinService(api, config["AdminPin"]);
@@ -92,6 +93,7 @@ static class Program
             stationCode  = config["StationCode"] ?? string.Empty;
             apiBaseUrl   = config["ApiBaseUrl"]  ?? apiBaseUrl;
             hmacSecret   = config["BypassHmacSecret"] ?? hmacSecret;
+            line         = config["Linea"] ?? line;
             clientApiKey = config["ClientApiKey"]
                          ?? Environment.GetEnvironmentVariable("QUALITYLOCK_CLIENT_API_KEY")
                          ?? clientApiKey;
@@ -107,7 +109,7 @@ static class Program
                 BaseAddress = new Uri(apiBaseUrl),
                 Timeout     = TimeSpan.FromSeconds(5)
             };
-            api      = new ApiClientService(http, stationCode, clientApiKey);
+            api      = new ApiClientService(http, stationCode, clientApiKey) { Line = line };
             bypass   = new BypassService(hmacSecret);
             adminPin = new AdminPinService(api, config["AdminPin"]);
         }

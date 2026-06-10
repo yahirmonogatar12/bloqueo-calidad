@@ -12,9 +12,9 @@ public class StationsController(
 {
     [HttpGet("{stationCode}/bootstrap")]
     public async Task<ActionResult<StationBootstrapResponse>> Bootstrap(
-        string stationCode, CancellationToken ct)
+        string stationCode, [FromQuery] string line, CancellationToken ct)
     {
-        var result = await bootstrapService.GetBootstrapAsync(stationCode, ct);
+        var result = await bootstrapService.GetBootstrapAsync(stationCode, line ?? string.Empty, ct);
         return Ok(result);
     }
 

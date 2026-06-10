@@ -120,4 +120,50 @@ public class SessionRepository(IDbConnectionFactory factory) : ISessionRepositor
         await conn.OpenAsync(ct);
         await conn.ExecuteAsync(sql, new { SessionId = sessionId, EndedAtUtc = endedAtUtc, Status = status, EndedOnline = endedOnline });
     }
+
+    public async Task<int> CloseStaleSessionsAsync(int staleMinutes, CancellationToken ct = default)
+    {
+        // Cierra sesiones abiertas cuya estacion no tiene heartbeat reciente. La hora de
+        // cierre es el ultimo heartbeat conocido de esa estacion; si no hay heartbeat
+        // posterior al inicio, se usa el inicio (sesion de duracion 0). 'ended_online' = 0
+        // porque el cierre lo decide el servidor, no el cliente.
+        const string sql = """
+            UPDATE station_sessions_QA s
+            SET s.ended_at_utc = GREATEST(
+                    s.started_at_utc,
+                    COALESCE((SELECT MAX(h.sent_at_utc) FROM client_heartbeats_QA h
+                              WHERE h.station_id = s.station_id), s.started_at_utc)),
+                s.status = 'AutoClosed',
+                s.ended_online = 0
+            WHERE s.ended_at_utc IS NULL
+              AND COALESCE((SELECT MAX(h.sent_at_utc) FROM client_heartbeats_QA h
+                            WHERE h.station_id = s.station_id), s.started_at_utc)
+                  < (UTC_TIMESTAMP() - INTERVAL @StaleMinutes MINUTE)
+            """;
+
+        using var conn = factory.CreateConnection();
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteAsync(sql, new { StaleMinutes = staleMinutes });
+    }
+
+    public async Task<int> CloseOpenSessionsForStationAsync(int stationId, CancellationToken ct = default)
+    {
+        // Cierra TODA sesion abierta de esta estacion (sin umbral de tiempo): al abrir una
+        // nueva, la anterior estaba huerfana. Hora de cierre = ultimo heartbeat o inicio.
+        const string sql = """
+            UPDATE station_sessions_QA s
+            SET s.ended_at_utc = GREATEST(
+                    s.started_at_utc,
+                    COALESCE((SELECT MAX(h.sent_at_utc) FROM client_heartbeats_QA h
+                              WHERE h.station_id = s.station_id), s.started_at_utc)),
+                s.status = 'AutoClosed',
+                s.ended_online = 0
+            WHERE s.station_id = @StationId
+              AND s.ended_at_utc IS NULL
+            """;
+
+        using var conn = factory.CreateConnection();
+        await conn.OpenAsync(ct);
+        return await conn.ExecuteAsync(sql, new { StationId = stationId });
+    }
 }

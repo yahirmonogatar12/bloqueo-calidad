@@ -236,7 +236,7 @@ public partial class LockForm : Form
         {
             await _api.SendHeartbeatAsync(new HeartbeatRequest(
                 _stationCode, DateTime.UtcNow, ClientVersion,
-                _safeMode.IsSafeMode, _lastActivity, null));
+                _safeMode.IsSafeMode, _lastActivity, null, Line: _api.Line));
 
             // Opportunistically replay any queued offline events when back online.
             await _offlineSync.FlushAsync();
@@ -404,8 +404,38 @@ public partial class LockForm : Form
         var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         using var setup = new StationSetupForm(_api, _localState, _adminPin, configPath);
         setup.ShowDialog();
-        // If user clicked "Detener servicio" inside the setup form, Application.Exit() was
-        // already called there. Otherwise we simply return here and the lock screen continues.
+
+        // Si dentro de la configuracion se pulso "Detener servicio", cerramos la sesion
+        // activa (para que NO quede 'En curso') y terminamos la app.
+        if (setup.StopServiceRequested)
+            await StopServiceAsync();
+    }
+
+    /// <summary>
+    /// Cierra la sesion activa de forma limpia y termina la aplicacion. Usado por
+    /// "Detener servicio": al ser un apagado intencional, la sesion se marca cerrada en
+    /// vez de quedar huerfana.
+    /// </summary>
+    private async Task StopServiceAsync()
+    {
+        if (_currentSessionId.HasValue)
+        {
+            try
+            {
+                if (_currentSessionOnline)
+                    await _api.EndSessionAsync(new EndSessionRequest(
+                        _currentSessionId.Value, _stationCode, "ServiceStopped",
+                        DateTime.UtcNow, IsOnline: true, Line: _api.Line));
+                else
+                    EnqueueOfflineEvent(StationEventType.AutoLock, _currentBadge,
+                        _currentSessionId, Guid.NewGuid().ToString(), new { reason = "ServiceStopped" });
+            }
+            catch { /* salimos de todos modos */ }
+        }
+
+        // Restaura el Administrador de tareas por si quedo deshabilitado.
+        SetTaskManagerEnabled(true);
+        Environment.Exit(0);
     }
 
     /// <summary>Refresca la caché de usuarios bajo demanda desde la bandeja del sistema.</summary>
@@ -536,7 +566,7 @@ public partial class LockForm : Form
             if (isOnline)
             {
                 var result = await _api.ValidateBadgeAsync(
-                    new BadgeValidationRequest(_stationCode, badgeCode, DateTime.UtcNow));
+                    new BadgeValidationRequest(_stationCode, badgeCode, DateTime.UtcNow, Line: _api.Line));
 
                 if (result?.Decision == ValidationDecision.Allowed)
                     await GrantAccessAsync(badgeCode, result.DisplayName, result.Role, isOnline: true);
@@ -688,7 +718,7 @@ public partial class LockForm : Form
         if (isOnline)
         {
             var session = await _api.StartSessionAsync(new StartSessionRequest(
-                _stationCode, badgeCode, DateTime.UtcNow, isOnline, correlationId));
+                _stationCode, badgeCode, DateTime.UtcNow, isOnline, correlationId, Line: _api.Line));
             _currentSessionId = session?.SessionId;
         }
         else
@@ -751,7 +781,7 @@ public partial class LockForm : Form
             {
                 await _api.EndSessionAsync(new EndSessionRequest(
                     _currentSessionId.Value, _stationCode,
-                    "AutoLock", DateTime.UtcNow, IsOnline: true));
+                    "AutoLock", DateTime.UtcNow, IsOnline: true, Line: _api.Line));
             }
             else
             {
@@ -884,7 +914,7 @@ public partial class LockForm : Form
 
         var evt = new StationEventRequest(
             _stationCode, badgeCode, sessionId, type,
-            DateTime.UtcNow, detailsJson, "Client-Offline", correlationId);
+            DateTime.UtcNow, detailsJson, "Client-Offline", correlationId, Line: _api.Line);
 
         _localState.AppendEventQueue(
             System.Text.Json.JsonSerializer.Serialize(evt,

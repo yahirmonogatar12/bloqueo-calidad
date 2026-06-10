@@ -29,7 +29,12 @@ public interface ISystemUserRepository
 
 public interface IStationRepository
 {
-    Task<Station?> GetByCodeAsync(string stationCode, CancellationToken ct = default);
+    /// <summary>
+    /// Busca una estacion por codigo + linea (host_name). La combinacion es unica, asi
+    /// que el mismo codigo (ej. ICT-01) puede existir en lineas distintas (M1, M2).
+    /// Si <paramref name="line"/> viene vacio, busca solo por codigo (compatibilidad).
+    /// </summary>
+    Task<Station?> GetByCodeAndLineAsync(string stationCode, string line, CancellationToken ct = default);
     Task<int> UpsertAsync(Station station, CancellationToken ct = default);
 }
 
@@ -46,6 +51,22 @@ public interface ISessionRepository
 
     Task<StationSession?> GetOpenSessionByStationAsync(int stationId, CancellationToken ct = default);
     Task CloseAsync(Guid sessionId, DateTime endedAtUtc, string status, bool endedOnline, CancellationToken ct = default);
+
+    /// <summary>
+    /// Cierra ("AutoClosed") las sesiones que quedaron abiertas porque el cliente murio
+    /// sin cerrarlas: aquellas cuya estacion no envia heartbeat desde hace mas de
+    /// <paramref name="staleMinutes"/>. La hora de cierre es el ultimo heartbeat conocido
+    /// (o el inicio de la sesion si no hubo ninguno posterior). Devuelve cuantas cerro.
+    /// </summary>
+    Task<int> CloseStaleSessionsAsync(int staleMinutes, CancellationToken ct = default);
+
+    /// <summary>
+    /// Cierra ("AutoClosed") cualquier sesion abierta de la estacion indicada, usando la
+    /// hora del ultimo heartbeat (o el inicio si no hubo). Se llama al abrir una sesion
+    /// nueva: una estacion no puede tener dos sesiones vivas, asi que la anterior estaba
+    /// huerfana (cliente reiniciado). Devuelve cuantas cerro.
+    /// </summary>
+    Task<int> CloseOpenSessionsForStationAsync(int stationId, CancellationToken ct = default);
 }
 
 public interface IEventRepository

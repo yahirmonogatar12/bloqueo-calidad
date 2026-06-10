@@ -10,9 +10,9 @@ public class StationBootstrapService(
     ISystemUserRepository systemUserRepo,
     AdminAccessOptions adminAccess) : IStationBootstrapService
 {
-    public async Task<StationBootstrapResponse> GetBootstrapAsync(string stationCode, CancellationToken ct = default)
+    public async Task<StationBootstrapResponse> GetBootstrapAsync(string stationCode, string line, CancellationToken ct = default)
     {
-        var station = await stationRepo.GetByCodeAsync(stationCode, ct)
+        var station = await stationRepo.GetByCodeAndLineAsync(stationCode, line, ct)
             ?? throw new NotFoundException($"Station '{stationCode}' not found.");
 
         if (!station.IsActive)

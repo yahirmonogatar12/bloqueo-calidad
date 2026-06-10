@@ -43,6 +43,7 @@ param(
     [Parameter(Mandatory)] [string]$SourceDir,
     [Parameter(Mandatory)] [string]$InstallDir,
     [Parameter(Mandatory)] [string]$StationCode,
+    [Parameter(Mandatory)] [string]$Linea,
     [Parameter(Mandatory)] [string]$ClientApiKey,
     [Parameter(Mandatory)] [string]$BypassHmacSecret,
     [string]$ApiBaseUrl = "http://192.168.1.10:5080/",
@@ -66,6 +67,7 @@ Copy-Item -Path (Join-Path $SourceDir '*') -Destination $InstallDir -Recurse -Fo
 # --- Escribir appsettings.json de la estacion ---
 $config = [ordered]@{
     StationCode      = $StationCode
+    Linea            = $Linea
     ApiBaseUrl       = $ApiBaseUrl
     BypassHmacSecret = $BypassHmacSecret
     AdminPin         = $AdminPin
@@ -76,7 +78,7 @@ $config = [ordered]@{
 }
 $cfgPath = Join-Path $InstallDir "appsettings.json"
 $config | ConvertTo-Json | Set-Content -Path $cfgPath -Encoding UTF8
-Write-Host "Config escrita: $cfgPath (StationCode=$StationCode)" -ForegroundColor Green
+Write-Host "Config escrita: $cfgPath (StationCode=$StationCode, Linea=$Linea)" -ForegroundColor Green
 
 $installedExe = Join-Path $InstallDir $exeName
 

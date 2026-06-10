@@ -3,6 +3,7 @@ using QualityLock.Application.Configuration;
 using QualityLock.Application.Exceptions;
 using QualityLock.Application.Interfaces;
 using QualityLock.Domain.Entities;
+using QualityLock.Shared.Constants;
 using QualityLock.Shared.DTOs;
 using QualityLock.Shared.Enums;
 
@@ -20,15 +21,16 @@ public class SessionService(
 
     public async Task<StartSessionResponse> StartAsync(StartSessionRequest request, CancellationToken ct = default)
     {
-        var station = await stationRepo.GetByCodeAsync(request.StationCode, ct)
+        var station = await stationRepo.GetByCodeAndLineAsync(request.StationCode, request.Line, ct)
             ?? throw new NotFoundException($"Station '{request.StationCode}' not found.");
 
         if (!station.IsActive)
             throw new ValidationException($"Station '{request.StationCode}' is not active.");
 
-        var existingSession = await sessionRepo.GetOpenSessionByStationAsync(station.Id, ct);
-        if (existingSession is not null)
-            throw new ConflictException($"Station '{request.StationCode}' already has an open session.");
+        // Al abrir una sesion nueva, cualquier sesion abierta previa de ESTA estacion
+        // estaba huerfana (el cliente se reinicio sin cerrarla): la cerramos en vez de
+        // rechazar el desbloqueo. Una estacion no puede tener dos sesiones vivas.
+        await sessionRepo.CloseOpenSessionsForStationAsync(station.Id, ct);
 
         // El "badge code" es el username del MES (usuarios_sistema, fuente de verdad).
         var user = await systemUserRepo.GetByUsernameAsync(request.BadgeCode, ct)
@@ -75,7 +77,7 @@ public class SessionService(
 
     public async Task EndAsync(EndSessionRequest request, CancellationToken ct = default)
     {
-        var station = await stationRepo.GetByCodeAsync(request.StationCode, ct)
+        var station = await stationRepo.GetByCodeAndLineAsync(request.StationCode, request.Line, ct)
             ?? throw new NotFoundException($"Station '{request.StationCode}' not found.");
 
         await sessionRepo.CloseAsync(

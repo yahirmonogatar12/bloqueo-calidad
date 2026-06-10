@@ -15,7 +15,7 @@ public class AdminOverrideService(
 {
     public async Task<AdminOverrideResponse> ProcessAsync(AdminOverrideRequest request, CancellationToken ct = default)
     {
-        var station = await stationRepo.GetByCodeAsync(request.StationCode, ct)
+        var station = await stationRepo.GetByCodeAndLineAsync(request.StationCode, request.Line, ct)
             ?? throw new NotFoundException($"Station '{request.StationCode}' not found.");
 
         var adminOp = await operatorRepo.GetByBadgeCodeAsync(request.AdminBadgeCode, ct)

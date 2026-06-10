@@ -16,6 +16,10 @@ public class StationSetupForm : Form
     private readonly AdminPinService _adminPin;
     private readonly string _configPath;
 
+    /// <summary>True si el usuario pulso "Detener servicio" (autenticado). El caller debe
+    /// cerrar la sesion activa, si la hay, y terminar la aplicacion.</summary>
+    public bool StopServiceRequested { get; private set; }
+
     // ── Conexión ──────────────────────────────────────────────
     private TextBox _txtApiUrl = null!;
     private Label _lblApiStatus = null!;
@@ -153,11 +157,11 @@ public class StationSetupForm : Form
         _cmbStationType.Items.AddRange(Enum.GetNames<StationType>());
         _cmbStationType.SelectedIndex = 0;
         bodyStation.Controls.Add(_cmbStationType); sy += 38;
-        bodyStation.Controls.Add(MakeLabel("Hostname:", LabelX, sy + 2));
-        _txtHostName = MakeTextBox(FieldX, sy, 280);
-        _txtHostName.ReadOnly = true;
-        _txtHostName.BackColor = Color.FromArgb(238, 240, 239);
-        bodyStation.Controls.Add(_txtHostName); sy += 38;
+        bodyStation.Controls.Add(MakeLabel("Línea:", LabelX, sy + 2));
+        _txtHostName = MakeTextBox(FieldX, sy, 160);
+        bodyStation.Controls.Add(_txtHostName);
+        bodyStation.Controls.Add(MakeHint("Línea de producción (M1, M2, ...).", FieldX + 170, sy + 2));
+        sy += 38;
         _chkActive = new CheckBox
         {
             Text = "Estación activa", Location = new Point(FieldX, sy), AutoSize = true, Checked = true, Font = Font
@@ -275,7 +279,8 @@ public class StationSetupForm : Form
 
             _txtApiUrl.Text = config["ApiBaseUrl"] ?? _api.BaseAddress;
             _txtStationCode.Text = config["StationCode"] ?? string.Empty;
-            _txtHostName.Text = Environment.MachineName;
+            // Linea (host_name): de config si ya se guardo, si no el nombre del equipo.
+            _txtHostName.Text = config["Linea"] ?? Environment.MachineName;
 
             // Pre-fill station name if code is set
             if (!string.IsNullOrEmpty(_txtStationCode.Text))
@@ -337,11 +342,16 @@ public class StationSetupForm : Form
         // Token claims are scoped to the station code being registered.
         _api.SetStationCode(_txtStationCode.Text.Trim());
 
+        // El campo "Línea" (host_name en BD) identifica la linea de produccion (M1, M2...).
+        // Si esta vacio, se usa el nombre del equipo como respaldo.
+        var linea = string.IsNullOrWhiteSpace(_txtHostName.Text) ? Environment.MachineName : _txtHostName.Text.Trim();
+        _api.Line = linea;   // para que el bootstrap posterior consulte la estacion correcta
+
         var request = new RegisterStationRequest(
             _txtStationCode.Text.Trim(),
             _txtStationName.Text.Trim(),
             Enum.Parse<StationType>(_cmbStationType.SelectedItem!.ToString()!),
-            Environment.MachineName,
+            linea,
             _chkActive.Checked);
 
         var (ok, message) = await _api.RegisterStationAsync(request);
@@ -381,6 +391,7 @@ public class StationSetupForm : Form
             var json = System.Text.Json.JsonSerializer.Serialize(new
             {
                 StationCode = _txtStationCode.Text.Trim(),
+                Linea = _txtHostName.Text.Trim(),
                 ApiBaseUrl = _txtApiUrl.Text.Trim().TrimEnd('/') + "/",
                 BypassHmacSecret = existing["BypassHmacSecret"] ?? string.Empty,
                 AdminPin = _txtAdminPin.Text.Trim(),
@@ -437,8 +448,12 @@ public class StationSetupForm : Form
         if (auth is { Authenticated: true })
         {
             SetResult($"Servicio detenido por {auth.Value.DisplayName}.", Color.DarkRed);
-            DialogResult = DialogResult.Cancel;
-            Application.Exit();
+            // Señala "detener servicio". Si este dialogo lo abrio el LockForm (desde la
+            // bandeja), este cierra la sesion activa antes de salir; si se abrio en el
+            // arranque (--setup), no hay sesion que cerrar y se sale igual.
+            StopServiceRequested = true;
+            DialogResult = DialogResult.Abort;
+            Close();
         }
         else
         {

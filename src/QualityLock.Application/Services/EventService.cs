@@ -24,7 +24,7 @@ public class EventService(
 
         foreach (var req in requests)
         {
-            var station = await stationRepo.GetByCodeAsync(req.StationCode, ct)
+            var station = await stationRepo.GetByCodeAndLineAsync(req.StationCode, req.Line, ct)
                 ?? throw new NotFoundException($"Station '{req.StationCode}' not found.");
 
             // El BadgeCode de un evento (offline u online) es el username del MES. Lo

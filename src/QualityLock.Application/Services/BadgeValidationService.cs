@@ -24,7 +24,7 @@ public class BadgeValidationService(
 
     public async Task<BadgeValidationResponse> ValidateAsync(BadgeValidationRequest request, CancellationToken ct = default)
     {
-        var station = await stationRepo.GetByCodeAsync(request.StationCode, ct)
+        var station = await stationRepo.GetByCodeAndLineAsync(request.StationCode, request.Line, ct)
             ?? throw new NotFoundException($"Station '{request.StationCode}' not found.");
 
         if (!station.IsActive)

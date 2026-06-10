@@ -50,7 +50,7 @@ public class BadgeValidationServiceTests
     [Fact]
     public async Task Validate_ActiveUser_ReturnsAllowed_AndBridgesOperator()
     {
-        _stationRepo.Setup(r => r.GetByCodeAsync("ICT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("ICT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _systemUserRepo.Setup(r => r.GetByUsernameAsync("Juan", default)).ReturnsAsync(ActiveUser);
         _operatorRepo.Setup(r => r.EnsureBridgeOperatorAsync(It.IsAny<SystemUser>(), false, default))
             .ReturnsAsync(BridgeOperator);
@@ -76,7 +76,7 @@ public class BadgeValidationServiceTests
             // Rol superadmin (nivel 10) >= MinRoleLevel (3) → admin.
             Roles = [new Role { Id = 1, Nombre = "superadmin", Nivel = 10 }]
         };
-        _stationRepo.Setup(r => r.GetByCodeAsync("ICT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("ICT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _systemUserRepo.Setup(r => r.GetByUsernameAsync("admin", default)).ReturnsAsync(adminUser);
         _operatorRepo.Setup(r => r.EnsureBridgeOperatorAsync(It.IsAny<SystemUser>(), true, default))
             .ReturnsAsync(BridgeOperator);
@@ -98,7 +98,7 @@ public class BadgeValidationServiceTests
             // Tecnico QA tiene nivel 3 == MinRoleLevel → admin.
             Roles = [new Role { Id = 4816, Nombre = "Tecnico QA", Nivel = 3 }]
         };
-        _stationRepo.Setup(r => r.GetByCodeAsync("ICT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("ICT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _systemUserRepo.Setup(r => r.GetByUsernameAsync("1744", default)).ReturnsAsync(qaUser);
         _operatorRepo.Setup(r => r.EnsureBridgeOperatorAsync(It.IsAny<SystemUser>(), true, default))
             .ReturnsAsync(BridgeOperator);
@@ -118,7 +118,7 @@ public class BadgeValidationServiceTests
             Id = 7, Username = "Juan", PasswordHash = new string('a', 64),
             NombreCompleto = "Juan Lopez", Activo = false
         };
-        _stationRepo.Setup(r => r.GetByCodeAsync("ICT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("ICT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _systemUserRepo.Setup(r => r.GetByUsernameAsync("Juan", default)).ReturnsAsync(inactiveUser);
         _eventRepo.Setup(r => r.InsertAsync(It.IsAny<StationEvent>(), default)).Returns(Task.CompletedTask);
 
@@ -131,7 +131,7 @@ public class BadgeValidationServiceTests
     [Fact]
     public async Task Validate_UnknownUser_ReturnsDenied()
     {
-        _stationRepo.Setup(r => r.GetByCodeAsync("ICT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("ICT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _systemUserRepo.Setup(r => r.GetByUsernameAsync("UNKNOWN", default)).ReturnsAsync((SystemUser?)null);
         _eventRepo.Setup(r => r.InsertAsync(It.IsAny<StationEvent>(), default)).Returns(Task.CompletedTask);
 
@@ -143,7 +143,7 @@ public class BadgeValidationServiceTests
     [Fact]
     public async Task Validate_UnknownStation_ThrowsNotFoundException()
     {
-        _stationRepo.Setup(r => r.GetByCodeAsync("INVALID", default)).ReturnsAsync((Station?)null);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("INVALID", It.IsAny<string>(), default)).ReturnsAsync((Station?)null);
 
         await _sut.Invoking(s => s.ValidateAsync(new BadgeValidationRequest("INVALID", "Juan", DateTime.UtcNow)))
             .Should().ThrowAsync<NotFoundException>();
@@ -152,7 +152,7 @@ public class BadgeValidationServiceTests
     [Fact]
     public async Task Validate_AuditEventIsRecorded()
     {
-        _stationRepo.Setup(r => r.GetByCodeAsync("ICT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("ICT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _systemUserRepo.Setup(r => r.GetByUsernameAsync("Juan", default)).ReturnsAsync(ActiveUser);
         _operatorRepo.Setup(r => r.EnsureBridgeOperatorAsync(It.IsAny<SystemUser>(), It.IsAny<bool>(), default))
             .ReturnsAsync(BridgeOperator);

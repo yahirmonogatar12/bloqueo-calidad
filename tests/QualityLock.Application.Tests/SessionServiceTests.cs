@@ -48,7 +48,7 @@ public class SessionServiceTests
     [Fact]
     public async Task StartSession_NoOpenSession_CreatesSession()
     {
-        _stationRepo.Setup(r => r.GetByCodeAsync("FCT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("FCT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _sessionRepo.Setup(r => r.GetOpenSessionByStationAsync(1, default)).ReturnsAsync((StationSession?)null);
         _systemUserRepo.Setup(r => r.GetByUsernameAsync("Yahir", default)).ReturnsAsync(ActiveUser);
         _operatorRepo.Setup(r => r.EnsureBridgeOperatorAsync(
@@ -66,21 +66,28 @@ public class SessionServiceTests
     }
 
     [Fact]
-    public async Task StartSession_OpenSessionExists_ThrowsConflict()
+    public async Task StartSession_OpenSessionExists_AutoClosesAndCreatesNew()
     {
-        var existingSession = new StationSession { Id = Guid.NewGuid(), StationId = 1, Status = SessionStatus.Open };
-        _stationRepo.Setup(r => r.GetByCodeAsync("FCT-01", default)).ReturnsAsync(ActiveStation);
-        _sessionRepo.Setup(r => r.GetOpenSessionByStationAsync(1, default)).ReturnsAsync(existingSession);
+        // Una sesion abierta previa de la estacion estaba huerfana: se auto-cierra y se
+        // abre la nueva (ya no se rechaza con 409).
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("FCT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
+        _systemUserRepo.Setup(r => r.GetByUsernameAsync("Yahir", default)).ReturnsAsync(ActiveUser);
+        _operatorRepo.Setup(r => r.EnsureBridgeOperatorAsync(It.IsAny<SystemUser>(), It.IsAny<bool>(), default))
+            .ReturnsAsync(BridgeOperator);
+        _sessionRepo.Setup(r => r.CreateWithUnlockEventAsync(
+                It.IsAny<StationSession>(), It.IsAny<StationEvent>(), default)).Returns(Task.CompletedTask);
 
-        await _sut.Invoking(s => s.StartAsync(
-                new StartSessionRequest("FCT-01", "BADGE002", DateTime.UtcNow, true, Guid.NewGuid().ToString())))
-            .Should().ThrowAsync<ConflictException>();
+        var result = await _sut.StartAsync(
+            new StartSessionRequest("FCT-01", "Yahir", DateTime.UtcNow, true, Guid.NewGuid().ToString()));
+
+        result.SessionId.Should().NotBeEmpty();
+        _sessionRepo.Verify(r => r.CloseOpenSessionsForStationAsync(1, default), Times.Once);
     }
 
     [Fact]
     public async Task StartSession_UnknownStation_ThrowsNotFound()
     {
-        _stationRepo.Setup(r => r.GetByCodeAsync("INVALID", default)).ReturnsAsync((Station?)null);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("INVALID", It.IsAny<string>(), default)).ReturnsAsync((Station?)null);
 
         await _sut.Invoking(s => s.StartAsync(
                 new StartSessionRequest("INVALID", "BADGE002", DateTime.UtcNow, true, Guid.NewGuid().ToString())))
@@ -90,7 +97,7 @@ public class SessionServiceTests
     [Fact]
     public async Task EndSession_ValidSession_Closes()
     {
-        _stationRepo.Setup(r => r.GetByCodeAsync("FCT-01", default)).ReturnsAsync(ActiveStation);
+        _stationRepo.Setup(r => r.GetByCodeAndLineAsync("FCT-01", It.IsAny<string>(), default)).ReturnsAsync(ActiveStation);
         _sessionRepo.Setup(r => r.CloseAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<bool>(), default))
             .Returns(Task.CompletedTask);
         _eventRepo.Setup(r => r.InsertAsync(It.IsAny<StationEvent>(), default)).Returns(Task.CompletedTask);

@@ -31,7 +31,7 @@ public interface IHeartbeatService
 
 public interface IStationBootstrapService
 {
-    Task<StationBootstrapResponse> GetBootstrapAsync(string stationCode, CancellationToken ct = default);
+    Task<StationBootstrapResponse> GetBootstrapAsync(string stationCode, string line, CancellationToken ct = default);
 }
 
 public interface IStationRegistrationService

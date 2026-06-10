@@ -15,6 +15,9 @@ public class ApiClientService(HttpClient http, string stationCode, string client
     private DateTime _tokenExpiresUtc = DateTime.MinValue;
     private readonly SemaphoreSlim _tokenLock = new(1, 1);
 
+    /// <summary>Linea de produccion (host_name) de esta estacion. Se envia en el bootstrap.</summary>
+    public string Line { get; set; } = string.Empty;
+
     /// <summary>
     /// Updates the station code used when requesting tokens (used during first-time
     /// setup, before StationCode is persisted to config). Forces re-authentication.
@@ -109,7 +112,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.GetAsync($"api/stations/{stationCodeArg}/bootstrap", ct), ct);
+                () => http.GetAsync($"api/stations/{stationCodeArg}/bootstrap?line={Uri.EscapeDataString(Line)}", ct), ct);
             if (resp is null || !resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<StationBootstrapResponse>(JsonOpts, ct);
         }

@@ -5,7 +5,8 @@ namespace QualityLock.Shared.DTOs;
 public record BadgeValidationRequest(
     string StationCode,
     string BadgeCode,
-    DateTime ClientUtc);
+    DateTime ClientUtc,
+    string Line = "");
 
 public record BadgeValidationResponse(
     string BadgeCode,
@@ -28,7 +29,8 @@ public record StartSessionRequest(
     string BadgeCode,
     DateTime ClientUtc,
     bool IsOnline,
-    string CorrelationId);
+    string CorrelationId,
+    string Line = "");
 
 public record StartSessionResponse(
     Guid SessionId,
@@ -39,7 +41,8 @@ public record EndSessionRequest(
     string StationCode,
     string Reason,
     DateTime ClientUtc,
-    bool IsOnline);
+    bool IsOnline,
+    string Line = "");
 
 public record StationEventRequest(
     string StationCode,
@@ -49,7 +52,8 @@ public record StationEventRequest(
     DateTime EventAtUtc,
     string? DetailsJson,
     string Source,
-    string CorrelationId);
+    string CorrelationId,
+    string Line = "");
 
 public record AdminOverrideRequest(
     string StationCode,
@@ -57,7 +61,8 @@ public record AdminOverrideRequest(
     string? TargetBadgeCode,
     OverrideReasonType Reason,
     string Comments,
-    DateTime ClientUtc);
+    DateTime ClientUtc,
+    string Line = "");
 
 public record AdminOverrideResponse(
     Guid OverrideId,
@@ -70,7 +75,8 @@ public record HeartbeatRequest(
     string ClientVersion,
     bool IsSafeMode,
     DateTime LastActivityAtUtc,
-    string? DetailsJson);
+    string? DetailsJson,
+    string Line = "");
 
 public record StationBootstrapResponse(
     StationSnapshot Station,

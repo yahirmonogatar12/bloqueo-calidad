@@ -8,7 +8,9 @@ public class StationRegistrationService(IStationRepository stationRepo) : IStati
 {
     public async Task<RegisterStationResponse> RegisterAsync(RegisterStationRequest request, CancellationToken ct = default)
     {
-        var existing = await stationRepo.GetByCodeAsync(request.StationCode, ct);
+        // La estacion se identifica por codigo + linea (HostName). El mismo codigo puede
+        // existir en lineas distintas (M1, M2) como estaciones separadas.
+        var existing = await stationRepo.GetByCodeAndLineAsync(request.StationCode, request.HostName, ct);
         var created = existing is null;
 
         var station = new Station

@@ -14,6 +14,15 @@ public static class AppConstants
     public const int HeartbeatIntervalSeconds = 60;
 
     /// <summary>
+    /// Minutos sin heartbeat tras los cuales una sesion abierta se considera "huerfana"
+    /// (el cliente murio sin cerrarla: corte, cierre forzado) y el servidor la auto-cierra
+    /// usando la hora del ultimo heartbeat conocido. Holgado (1 h) para no cerrar sesiones
+    /// vivas por cortes breves de red; ademas, un desbloqueo nuevo limpia al instante la
+    /// huerfana de esa estacion (red de seguridad en SessionService.Start).
+    /// </summary>
+    public const int StaleSessionMinutes = 60;
+
+    /// <summary>
     /// Cada cuánto se refresca la caché de usuarios (operator-cache.json) desde el
     /// bootstrap, para que usuarios nuevos esten disponibles offline sin reiniciar la
     /// estacion. Se evalua en el tick del heartbeat.
