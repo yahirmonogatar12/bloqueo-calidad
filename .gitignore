@@ -47,3 +47,4 @@ event-queue.jsonl
 Thumbs.db
 desktop.ini
 .DS_Store
+deploy/station/appsettings.station.template.json

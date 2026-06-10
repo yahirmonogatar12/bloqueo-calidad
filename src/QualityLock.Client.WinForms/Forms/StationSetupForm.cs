@@ -388,13 +388,19 @@ public class StationSetupForm : Form
                 .AddJsonFile(_configPath, optional: true)
                 .Build();
 
+            // Si el campo del PIN quedo vacio, conserva el PIN existente: nunca lo borres
+            // al guardar (dejaria la estacion sin via de recuperacion offline).
+            var pin = string.IsNullOrWhiteSpace(_txtAdminPin.Text)
+                ? (existing["AdminPin"] ?? string.Empty)
+                : _txtAdminPin.Text.Trim();
+
             var json = System.Text.Json.JsonSerializer.Serialize(new
             {
                 StationCode = _txtStationCode.Text.Trim(),
                 Linea = _txtHostName.Text.Trim(),
                 ApiBaseUrl = _txtApiUrl.Text.Trim().TrimEnd('/') + "/",
                 BypassHmacSecret = existing["BypassHmacSecret"] ?? string.Empty,
-                AdminPin = _txtAdminPin.Text.Trim(),
+                AdminPin = pin,
                 ClientApiKey = existing["ClientApiKey"] ?? string.Empty,
                 AutoLockSeconds = (int)_numAutoLock.Value * 60,   // minutos (UI) -> segundos
                 RequireScan = _chkRequireScan.Checked,

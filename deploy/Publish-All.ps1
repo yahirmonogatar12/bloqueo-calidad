@@ -15,15 +15,30 @@
     .\Publish-All.ps1 -OutDir C:\QualityLock\publish
 
 .EXAMPLE
+    .\Publish-All.ps1 -OutDir C:\QualityLock\publish -ClientRuntime win-x86
+
+.EXAMPLE
     .\Publish-All.ps1 -OutDir .\publish -FrameworkDependent
 #>
 [CmdletBinding()]
 param(
     [string]$OutDir = ".\publish",
     [string]$Runtime = "win-x64",
+    [string]$ApiRuntime = "",
+    [string]$ClientRuntime = "",
     [switch]$FrameworkDependent
 )
 $ErrorActionPreference = "Stop"
+
+$validRuntimes = @("win-x64", "win-x86", "win-arm64")
+if (-not $ApiRuntime) { $ApiRuntime = $Runtime }
+if (-not $ClientRuntime) { $ClientRuntime = $Runtime }
+
+foreach ($rid in @($ApiRuntime, $ClientRuntime)) {
+    if ($validRuntimes -notcontains $rid) {
+        throw "Runtime no soportado '$rid'. Usa uno de: $($validRuntimes -join ', ')."
+    }
+}
 
 # La solucion esta un nivel arriba de /deploy
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -33,18 +48,24 @@ try {
     $apiOut    = Join-Path $OutDir "Api"
     $clientOut = Join-Path $OutDir "Client"
 
-    $common = @(
+    $apiCommon = @(
         "-c", "Release",
-        "-r", $Runtime,
+        "-r", $ApiRuntime,
         "--self-contained", "$($selfContained.ToString().ToLower())"
     )
 
-    Write-Host "Publicando API -> $apiOut" -ForegroundColor Cyan
-    dotnet publish "src/QualityLock.Api/QualityLock.Api.csproj" @common -o $apiOut
+    $clientCommon = @(
+        "-c", "Release",
+        "-r", $ClientRuntime,
+        "--self-contained", "$($selfContained.ToString().ToLower())"
+    )
+
+    Write-Host "Publicando API ($ApiRuntime) -> $apiOut" -ForegroundColor Cyan
+    dotnet publish "src/QualityLock.Api/QualityLock.Api.csproj" @apiCommon -o $apiOut
     if ($LASTEXITCODE -ne 0) { throw "Fallo el publish de la API." }
 
-    Write-Host "Publicando Cliente -> $clientOut" -ForegroundColor Cyan
-    dotnet publish "src/QualityLock.Client.WinForms/QualityLock.Client.WinForms.csproj" @common -o $clientOut
+    Write-Host "Publicando Cliente ($ClientRuntime) -> $clientOut" -ForegroundColor Cyan
+    dotnet publish "src/QualityLock.Client.WinForms/QualityLock.Client.WinForms.csproj" @clientCommon -o $clientOut
     if ($LASTEXITCODE -ne 0) { throw "Fallo el publish del cliente." }
 
     Write-Host ""

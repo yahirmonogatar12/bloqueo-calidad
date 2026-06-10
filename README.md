@@ -155,6 +155,7 @@ El perfil HTTP de desarrollo usa `http://localhost:5080`.
 ```json
 {
   "StationCode": "ICT-01",
+  "Linea": "M1",
   "ApiBaseUrl": "http://localhost:5080/",
   "BypassHmacSecret": "CHANGE-THIS-SECRET-IN-PRODUCTION",
   "AdminPin": "",
@@ -170,6 +171,9 @@ El perfil HTTP de desarrollo usa `http://localhost:5080`.
   un PIN por defecto inseguro (`admin1234`) — **configurelo antes de desplegar**.
 - `ClientApiKey`: debe coincidir con `Auth:ClientApiKey` de la API. Tambien puede
   definirse en `QUALITYLOCK_CLIENT_API_KEY`.
+- `Linea`: linea de produccion de la estacion (`M1`, `M2`, ...). El backend usa
+  `StationCode + Linea` para distinguir estaciones con el mismo codigo en lineas
+  distintas.
 - `AutoLockSeconds`: segundos de **inactividad real** (mouse/teclado en todo el sistema)
   antes de que la estacion se bloquee sola. Por defecto `300` (5 min). Si el operador
   esta trabajando, no se bloquea. El indicador de sesion tambien tiene un boton

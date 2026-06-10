@@ -45,11 +45,25 @@ public sealed class KeyboardHookService : IDisposable
         }
     }
 
+    // Virtual-key codes para detectar combinaciones de recuperacion.
+    private const int VK_CONTROL = 0x11;
+    private const int VK_SHIFT   = 0x10;
+    private const int VK_ESCAPE  = 0x1B;
+
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode >= 0 && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN))
         {
             int vkCode = Marshal.ReadInt32(lParam);
+
+            bool ctrl  = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool shift = (GetAsyncKeyState(VK_SHIFT)   & 0x8000) != 0;
+
+            // Recuperacion: Ctrl+Shift+Esc abre el Administrador de tareas directamente.
+            // NO la bloqueamos, para que un admin pueda recuperar la maquina si la app se
+            // congela. (Ctrl+Alt+Supr es una SAS del sistema que el hook nunca ve.)
+            if (vkCode == VK_ESCAPE && ctrl && shift)
+                return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
             if (((int[])BlockedKeys).Contains(vkCode))
                 return (IntPtr)1;

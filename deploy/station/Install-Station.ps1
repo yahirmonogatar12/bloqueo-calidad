@@ -5,8 +5,8 @@
 
 .DESCRIPTION
     - Copia los binarios publicados del cliente a la carpeta destino.
-    - Escribe appsettings.json con el StationCode, ApiBaseUrl, ClientApiKey y secreto de
-      bypass de ESTA estacion.
+    - Escribe appsettings.json con el StationCode, Linea, ApiBaseUrl, ClientApiKey y
+      secreto de bypass de ESTA estacion.
     - Registra el arranque automatico (clave Run del usuario, o tarea programada al logon).
     El cliente es una app de escritorio fullscreen: corre en la sesion interactiva del
     usuario, NO como servicio.
@@ -19,6 +19,10 @@
 
 .PARAMETER StationCode
     Codigo unico de la estacion (debe existir y estar activa en stations_QA). Ej: ICT-01
+
+.PARAMETER Linea
+    Linea de produccion de la estacion. Se guarda como host_name en stations_QA.
+    Ej: M1, M2. Tambien acepta el alias -Line.
 
 .PARAMETER ApiBaseUrl
     URL del servidor. Por defecto http://192.168.1.10:5080/
@@ -36,14 +40,14 @@
 
 .EXAMPLE
     .\Install-Station.ps1 -SourceDir .\publish\Client -InstallDir C:\QualityLock\Client `
-        -StationCode ICT-01 -ClientApiKey "<clave>" -BypassHmacSecret "<secreto>"
+        -StationCode ICT-01 -Linea M1 -ClientApiKey "<clave>" -BypassHmacSecret "<secreto>"
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string]$SourceDir,
     [Parameter(Mandatory)] [string]$InstallDir,
     [Parameter(Mandatory)] [string]$StationCode,
-    [Parameter(Mandatory)] [string]$Linea,
+    [Parameter(Mandatory)] [Alias('Line')] [string]$Linea,
     [Parameter(Mandatory)] [string]$ClientApiKey,
     [Parameter(Mandatory)] [string]$BypassHmacSecret,
     [string]$ApiBaseUrl = "http://192.168.1.10:5080/",
@@ -56,13 +60,50 @@ param(
 $ErrorActionPreference = "Stop"
 
 $exeName = "QualityLock.Client.WinForms.exe"
-$srcExe  = Join-Path $SourceDir $exeName
+$sourceDirPath = (Resolve-Path -LiteralPath $SourceDir).ProviderPath
+$installDirPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)
+$srcExe  = Join-Path $sourceDirPath $exeName
 if (-not (Test-Path $srcExe)) { throw "No se encontro $srcExe. Publica el cliente primero (ver guia)." }
 
+function Get-PeMachine {
+    param([Parameter(Mandatory)] [string]$Path)
+
+    $fs = [System.IO.File]::OpenRead($Path)
+    try {
+        $br = New-Object System.IO.BinaryReader($fs)
+        if ($br.ReadUInt16() -ne 0x5A4D) { return "unknown" } # MZ
+
+        $fs.Seek(0x3c, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $peHeaderOffset = $br.ReadInt32()
+        $fs.Seek($peHeaderOffset, [System.IO.SeekOrigin]::Begin) | Out-Null
+
+        if ($br.ReadUInt32() -ne 0x00004550) { return "unknown" } # PE\0\0
+        $machine = $br.ReadUInt16()
+
+        switch ($machine) {
+            0x014c { "x86"; break }
+            0x8664 { "x64"; break }
+            0xaa64 { "arm64"; break }
+            default { "0x{0:X4}" -f $machine }
+        }
+    }
+    finally {
+        $fs.Dispose()
+    }
+}
+
+$clientArch = Get-PeMachine -Path $srcExe
+$osArch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+Write-Host "Arquitectura detectada: cliente=$clientArch, Windows=$osArch" -ForegroundColor Cyan
+
+if ($clientArch -eq "x64" -and -not [Environment]::Is64BitOperatingSystem) {
+    throw "Este paquete de cliente es win-x64, pero esta estacion corre Windows de 32 bits. Publica el cliente con: .\Publish-All.ps1 -ClientRuntime win-x86"
+}
+
 # --- Copiar binarios ---
-Write-Host "Copiando binarios a $InstallDir ..." -ForegroundColor Cyan
-New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-Copy-Item -Path (Join-Path $SourceDir '*') -Destination $InstallDir -Recurse -Force
+Write-Host "Copiando binarios a $installDirPath ..." -ForegroundColor Cyan
+New-Item -ItemType Directory -Force -Path $installDirPath | Out-Null
+Copy-Item -Path (Join-Path $sourceDirPath '*') -Destination $installDirPath -Recurse -Force
 
 # --- Escribir appsettings.json de la estacion ---
 $config = [ordered]@{
@@ -76,11 +117,11 @@ $config = [ordered]@{
     RequireScan      = $RequireScan
     ScanMaxAvgKeyMs  = $ScanMaxAvgKeyMs
 }
-$cfgPath = Join-Path $InstallDir "appsettings.json"
+$cfgPath = Join-Path $installDirPath "appsettings.json"
 $config | ConvertTo-Json | Set-Content -Path $cfgPath -Encoding UTF8
 Write-Host "Config escrita: $cfgPath (StationCode=$StationCode, Linea=$Linea)" -ForegroundColor Green
 
-$installedExe = Join-Path $InstallDir $exeName
+$installedExe = Join-Path $installDirPath $exeName
 
 # --- Arranque automatico ---
 switch ($Autostart) {

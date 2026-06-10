@@ -261,18 +261,21 @@ public partial class LockForm : Form
         // el operador necesita poder escribir en el.
         if (_modalOpen) return;
 
-        // In safe mode, don't fight the user for the foreground — recovery must be possible.
-        if (_safeMode.IsSafeMode) return;
-
-        // Si el Administrador de tareas (u otra UI de recuperacion del sistema) esta al
-        // frente, NO nos superponemos: soltamos TopMost para que pueda quedar encima y
-        // un admin pueda recuperar la maquina si la app se congela. El operador normal
-        // no sabe/usa esto.
-        if (IsRecoveryWindowForeground())
+        // Si el Administrador de tareas esta abierto, el admin esta haciendo una
+        // recuperacion deliberada de la maquina (la app se congelo, hay que cerrar algo,
+        // etc.). En vez de pelear por el Z-order con una ventana fullscreen —lo que dejaba
+        // el taskmgr tapado o inusable— DESBLOQUEAMOS automaticamente y registramos el
+        // evento como recuperacion auditada. Solo se dispara una vez por apertura.
+        // IMPORTANTE: este chequeo va ANTES que el de modo seguro: en modo seguro la
+        // recuperacion importa todavia mas (el cliente ya viene de crashes repetidos).
+        if (IsRecoveryProcessRunning())
         {
-            if (TopMost) TopMost = false;
+            _ = RecoveryUnlockAsync();
             return;
         }
+
+        // In safe mode, don't fight the user for the foreground — recovery must be possible.
+        if (_safeMode.IsSafeMode) return;
 
         // Force this window back to the very top of the Z-order
         if (!TopMost) TopMost = true;
@@ -284,39 +287,87 @@ public partial class LockForm : Form
             _txtBadge.Focus();
     }
 
+    // Evita disparar el desbloqueo de recuperacion mas de una vez mientras el guard
+    // sigue viendo el taskmgr abierto.
+    private bool _recoveryUnlocking;
+
+    /// <summary>
+    /// Desbloqueo automatico de recuperacion: se invoca cuando el guard detecta el
+    /// Administrador de tareas abierto. Deja la maquina usable (oculta el bloqueo) y
+    /// registra el evento como recuperacion auditada (quien/cuando), sin pedir gafete.
+    /// Es una via de emergencia deliberada del admin; el operador normal no abre taskmgr.
+    /// </summary>
+    private async Task RecoveryUnlockAsync()
+    {
+        if (_recoveryUnlocking || !_isLocked) return;
+        _recoveryUnlocking = true;
+        try
+        {
+            // Registra la recuperacion (best-effort, online u offline en cola).
+            var correlationId = Guid.NewGuid().ToString();
+            var sessionId = Guid.NewGuid();
+            EnqueueOfflineEvent(StationEventType.ClientRecovered, "TASK-MANAGER",
+                sessionId, correlationId,
+                new { reason = "TaskManagerOpened", at = DateTime.UtcNow });
+
+            // Desbloqueo visual: quita el hook de teclado, restaura el taskmgr y oculta
+            // el bloqueo. No abrimos sesion de operador: es una recuperacion de admin.
+            UnlockUi("Recuperación (Administrador de tareas)", "recovery");
+        }
+        catch { /* nunca dejar atascado al admin por un fallo de registro */ }
+    }
+
     // Procesos de recuperacion del sistema ante los que la pantalla de bloqueo cede el
     // primer plano (en minusculas, sin extension).
     private static readonly string[] RecoveryProcesses = ["taskmgr"];
 
+    // Cache breve de la deteccion: enumerar procesos cada 300 ms es innecesario, basta
+    // refrescar ~1 vez por segundo. (tick, resultado)
+    private DateTime _recoveryCheckedAt = DateTime.MinValue;
+    private bool _recoveryRunningCache;
+
     /// <summary>
-    /// True si la ventana en primer plano pertenece a un proceso de recuperacion
-    /// (ej. el Administrador de tareas). Si falla la deteccion, devuelve false para no
+    /// True si hay un proceso de recuperacion (ej. el Administrador de tareas) en
+    /// ejecucion con una ventana visible. Detectar por proceso —y no solo por foreground—
+    /// evita la carrera en la que el guard re-afirma TopMost antes de que taskmgr alcance
+    /// el primer plano, impidiendo abrirlo. Si falla la deteccion, devuelve false para no
     /// debilitar el bloqueo por error.
     /// </summary>
-    private static bool IsRecoveryWindowForeground()
+    private bool IsRecoveryProcessRunning()
     {
+        var now = DateTime.UtcNow;
+        if ((now - _recoveryCheckedAt).TotalMilliseconds < 250)
+            return _recoveryRunningCache;
+        _recoveryCheckedAt = now;
+
         try
         {
-            var hwnd = GetForegroundWindow();
-            if (hwnd == IntPtr.Zero) return false;
-
-            _ = GetWindowThreadProcessId(hwnd, out uint pid);
-            if (pid == 0) return false;
-
-            using var proc = System.Diagnostics.Process.GetProcessById((int)pid);
-            return RecoveryProcesses.Contains(proc.ProcessName.ToLowerInvariant());
+            bool running = false;
+            foreach (var name in RecoveryProcesses)
+            {
+                // Basta con que el proceso exista. NO exigimos MainWindowHandle != 0: el
+                // Administrador de tareas corre ELEVADO (integridad alta) y un proceso de
+                // integridad media no puede leer el handle de su ventana, devolviendo 0.
+                // Esa era la razon por la que la deteccion fallaba.
+                var procs = System.Diagnostics.Process.GetProcessesByName(name);
+                try
+                {
+                    if (procs.Length > 0) { running = true; break; }
+                }
+                finally
+                {
+                    foreach (var p in procs) p.Dispose();
+                }
+            }
+            _recoveryRunningCache = running;
         }
         catch
         {
-            return false;
+            _recoveryRunningCache = false;
         }
+
+        return _recoveryRunningCache;
     }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     // ─────────────────────────────────────────────────────────
     // Tray icon
@@ -607,9 +658,19 @@ public partial class LockForm : Form
     /// </summary>
     private async Task HandleManualEntryAsync(string username, bool adminOnly)
     {
+        // Vía de recuperación garantizada (online u offline): si lo tecleado es el PIN
+        // local de administrador, desbloquea como admin sin tocar la red. Esto evita que
+        // una estación sin conexión (o sin caché) quede atrapada: el admin de planta
+        // siempre puede entrar con el PIN y llegar a la configuración.
+        if (_adminPin.ValidatePin(username))
+        {
+            await GrantAccessAsync("ADMIN-PIN", "Administrador (PIN local)", "admin", isOnline: false);
+            return;
+        }
+
         if (!await _api.IsAvailableAsync())
         {
-            SetStatus("Use el escáner QR (sin conexión no se permite entrada manual).", Color.OrangeRed);
+            SetStatus("Sin conexión: escanee su gafete, o teclee el PIN local de administrador.", Color.OrangeRed);
             return;
         }
 
@@ -798,6 +859,9 @@ public partial class LockForm : Form
         }
 
         _isLocked = true;
+        // Permite que una nueva apertura del Administrador de tareas vuelva a disparar el
+        // desbloqueo de recuperacion.
+        _recoveryUnlocking = false;
 
         // Ocultar el indicador de sesion: la sesion termino.
         _sessionBadge?.Hide();

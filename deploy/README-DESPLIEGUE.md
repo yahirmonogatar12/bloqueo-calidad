@@ -59,6 +59,13 @@ cd deploy
 Genera `C:\QualityLock\publish\Api` y `...\Client`. Self-contained por defecto (no hace
 falta instalar .NET en el servidor ni en las estaciones).
 
+Si alguna estacion corre Windows de 32 bits, publica el cliente como x86:
+
+```powershell
+cd deploy
+.\Publish-All.ps1 -OutDir C:\QualityLock\publish -ClientRuntime win-x86
+```
+
 ---
 
 ## Paso 2 — Generar las claves (una vez)
@@ -104,13 +111,14 @@ cd deploy\station
     -SourceDir   C:\QualityLock\publish\Client `
     -InstallDir  C:\QualityLock\Client `
     -StationCode ICT-01 `
+    -Linea       M1 `
     -ClientApiKey "<Auth__ClientApiKey del paso 2>" `
     -BypassHmacSecret "<secreto-de-bypass-compartido>"
 ```
 
-Repite con el `StationCode` que corresponda en cada equipo (`FCT-01`, `PKG-01`, ...).
-El cliente queda en **autostart al iniciar sesion** (tarea programada). Para probarlo sin
-reiniciar:
+Repite con el `StationCode` y la `Linea` que correspondan en cada equipo (`ICT-01/M1`,
+`ICT-01/M2`, `FCT-01/M1`, ...). El cliente queda en **autostart al iniciar sesion**
+(tarea programada). Para probarlo sin reiniciar:
 
 ```powershell
 & C:\QualityLock\Client\QualityLock.Client.WinForms.exe
@@ -140,6 +148,7 @@ activo de `usuarios_sistema`.
 | Clave | Valor |
 |---|---|
 | `StationCode` | unico por estacion (debe existir en `stations_QA`) |
+| `Linea` | linea de produccion; se guarda como `host_name` en `stations_QA` |
 | `ApiBaseUrl` | `http://192.168.1.10:5080/` |
 | `ClientApiKey` | igual a `Auth:ClientApiKey` del servidor |
 | `BypassHmacSecret` | secreto para bypass firmados de contingencia |
@@ -164,7 +173,7 @@ activo de `usuarios_sistema`.
 - **Actualizar la API:** detener el servicio, reemplazar binarios en `C:\QualityLock\Api`,
   arrancar. La config (variables del servicio) se conserva.
 - **Actualizar una estacion:** volver a correr `Install-Station.ps1` (reemplaza binarios y
-  conserva el `StationCode`).
+  conserva la configuracion indicada: `StationCode`, `Linea` y secretos).
 - **Refrescar usuarios en una estacion sin reiniciar:** menu de la bandeja →
   **Refrescar usuarios** (o esperar el refresco automatico cada 15 min).
 
