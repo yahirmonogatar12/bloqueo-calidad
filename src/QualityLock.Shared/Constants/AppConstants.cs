@@ -4,6 +4,7 @@ public static class AppConstants
 {
     public const string CorrelationIdHeader = "X-Correlation-Id";
     public const string LocalDataPath = @"C:\ProgramData\QualityLock";
+    public const string ClientConfigFile = @"C:\ProgramData\QualityLock\appsettings.json";
     public const string ClientStateFile = @"C:\ProgramData\QualityLock\client-state.json";
     public const string OperatorCacheFile = @"C:\ProgramData\QualityLock\operator-cache.json";
     public const string EventQueueFile = @"C:\ProgramData\QualityLock\event-queue.jsonl";

@@ -13,6 +13,8 @@ public class EventService(
     IEventRepository eventRepo,
     AdminAccessOptions adminAccess) : IEventService
 {
+    private const string OfflineClientSource = "Client-Offline";
+
     public async Task RecordAsync(StationEventRequest request, CancellationToken ct = default)
     {
         await RecordBatchAsync([request], ct);
@@ -37,7 +39,7 @@ public class EventService(
                 Id = Guid.NewGuid(),
                 StationId = station.Id,
                 OperatorId = operatorId,
-                SessionId = req.SessionId,
+                SessionId = IsOfflineClientEvent(req) ? null : req.SessionId,
                 EventType = req.EventType,
                 EventAtUtc = req.EventAtUtc,
                 DetailsJson = req.DetailsJson,
@@ -65,4 +67,7 @@ public class EventService(
         var existing = await operatorRepo.GetByBadgeCodeAsync(badgeCode, ct);
         return existing?.Id;
     }
+
+    private static bool IsOfflineClientEvent(StationEventRequest request)
+        => string.Equals(request.Source, OfflineClientSource, StringComparison.OrdinalIgnoreCase);
 }

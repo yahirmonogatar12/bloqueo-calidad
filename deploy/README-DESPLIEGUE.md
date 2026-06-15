@@ -22,12 +22,15 @@ por HTTP; nunca tocan MySQL directamente.
 | Archivo | Donde se ejecuta | Que hace |
 |---|---|---|
 | `Publish-All.ps1` | maquina de build | Publica API y cliente en Release |
+| `station/Build-StationInstaller.ps1` | maquina de build | Compila instaladores EXE x64/x86 con Inno Setup |
+| `station/QualityLockStation.iss` | maquina de build | Script Inno Setup del instalador de estacion |
+| `server/Build-ServerPackage.ps1` | maquina de build | Crea paquete portable de servidor |
 | `New-Secrets.ps1` | una vez | Genera `Jwt:SigningKey` y `Auth:ClientApiKey` |
 | `server/Install-Server-Service.ps1` | servidor (admin) | Instala la API como servicio de Windows |
 | `server/Open-Firewall.ps1` | servidor (admin) | Abre el puerto 5080 en el firewall |
 | `server/Uninstall-Server-Service.ps1` | servidor (admin) | Quita el servicio |
 | `station/appsettings.station.template.json` | referencia | Plantilla de config por estacion |
-| `station/Install-Station.ps1` | cada estacion | Copia el cliente y lo deja en autostart |
+| `station/Install-Station.ps1` | cada estacion | Instalacion script legacy; preferir el instalador EXE |
 | `station/Uninstall-Station.ps1` | cada estacion | Quita el cliente |
 
 ---
@@ -54,16 +57,16 @@ por HTTP; nunca tocan MySQL directamente.
 
 ```powershell
 cd deploy
-.\Publish-All.ps1 -OutDir C:\QualityLock\publish
+.\Publish-All.ps1 -OutDir C:\QualityLock\publish -AllClientRuntimes
 ```
-Genera `C:\QualityLock\publish\Api` y `...\Client`. Self-contained por defecto (no hace
-falta instalar .NET en el servidor ni en las estaciones).
+Genera `C:\QualityLock\publish\Api`, `...\Client-win-x64` y `...\Client-win-x86`.
+Self-contained por defecto (no hace falta instalar .NET en el servidor ni en las
+estaciones).
 
-Si alguna estacion corre Windows de 32 bits, publica el cliente como x86:
+Si falta Inno Setup para el paso de instaladores:
 
 ```powershell
-cd deploy
-.\Publish-All.ps1 -OutDir C:\QualityLock\publish -ClientRuntime win-x86
+winget install JRSoftware.InnoSetup
 ```
 
 ---
@@ -76,14 +79,53 @@ cd deploy
 ```
 Edita `C:\QualityLock\server.env` y pon la **contrasena real (rotada) de MySQL** en
 `ConnectionStrings__MySQL`. Anota el valor de `Auth__ClientApiKey`: lo necesitaras en
-cada estacion. **No subas `server.env` ni las claves a git.**
+cada estacion si compilas instaladores sin `-SecretsFile`. El mismo archivo incluye
+`BypassHmacSecret` para firmar bypass locales. **No subas `server.env` ni las claves a
+git.**
 
 ---
 
-## Paso 3 — Instalar la API en el servidor (192.168.1.10)
+## Paso 3 — Compilar instaladores de estacion
 
-Copia `C:\QualityLock\publish\Api` y `server.env` al servidor. En una **PowerShell como
-Administrador**:
+```powershell
+cd deploy
+.\station\Build-StationInstaller.ps1 `
+    -PublishRoot C:\QualityLock\publish `
+    -OutDir C:\QualityLock\installers `
+    -SecretsFile C:\QualityLock\server.env
+```
+
+Esto genera `QualityLockStation-win-x64.exe` y `QualityLockStation-win-x86.exe`.
+El builder toma `Auth__ClientApiKey` y `BypassHmacSecret` del `.env` para que el
+instalador los muestre prellenados. Trata esos EXE como sensibles: contienen claves
+compartidas de estaciones.
+
+---
+
+## Paso 4 — Instalar la API en el servidor (192.168.1.10)
+
+Opcion recomendada: crear un paquete portable para copiar al servidor o ejecutar desde
+la carpeta de control:
+
+```powershell
+cd deploy\server
+.\Build-ServerPackage.ps1 `
+    -PublishDir C:\QualityLock\publish\Api `
+    -EnvFile C:\QualityLock\server.env `
+    -OutDir C:\tmp\QualityLock-Server `
+    -Zip
+```
+
+En el servidor, abre una **PowerShell como Administrador**:
+
+```powershell
+cd C:\tmp\QualityLock-Server
+.\Install-QualityLockServer.ps1
+.\Test-QualityLockServer.ps1
+```
+
+Alternativa manual: copia `C:\QualityLock\publish\Api` y `server.env` al servidor. En una
+**PowerShell como Administrador**:
 
 ```powershell
 cd deploy\server
@@ -101,27 +143,40 @@ Invoke-WebRequest http://192.168.1.10:5080/health   # -> 200 Healthy
 
 ---
 
-## Paso 4 — Instalar el cliente en cada estacion
+## Paso 5 — Instalar el cliente en cada estacion
 
-Copia `C:\QualityLock\publish\Client` a la estacion. Luego:
+Copia a la estacion el instalador que corresponda:
+
+- Windows 64 bits: `C:\QualityLock\installers\QualityLockStation-win-x64.exe`
+- Windows 32 bits: `C:\QualityLock\installers\QualityLockStation-win-x86.exe`
+
+Ejecutalo como Administrador. El instalador pedira:
+
+- `StationCode`
+- `Linea`
+- `ApiBaseUrl`
+- `ClientApiKey` (prellenado si se compilo con `-SecretsFile`)
+- `BypassHmacSecret` (prellenado si se compilo con `-SecretsFile`)
+- `AdminPin`
+- `AutoLockSeconds`
+- `RequireScan`
+- `ScanMaxAvgKeyMs`
+
+Al terminar, el cliente queda instalado y con arranque automatico por
+`HKLM\Software\Microsoft\Windows\CurrentVersion\Run`, valido para cualquier usuario al
+iniciar sesion. El instalador tambien elimina la tarea programada heredada
+`QualityLockClient`, si existe.
+
+Para probarlo sin cerrar sesion:
 
 ```powershell
-cd deploy\station
-.\Install-Station.ps1 `
-    -SourceDir   C:\QualityLock\publish\Client `
-    -InstallDir  C:\QualityLock\Client `
-    -StationCode ICT-01 `
-    -Linea       M1 `
-    -ClientApiKey "<Auth__ClientApiKey del paso 2>" `
-    -BypassHmacSecret "<secreto-de-bypass-compartido>"
+& "$env:ProgramFiles\QualityLock\Client\QualityLock.Client.WinForms.exe"
 ```
 
-Repite con el `StationCode` y la `Linea` que correspondan en cada equipo (`ICT-01/M1`,
-`ICT-01/M2`, `FCT-01/M1`, ...). El cliente queda en **autostart al iniciar sesion**
-(tarea programada). Para probarlo sin reiniciar:
+En equipos de 32 bits instalados en `Program Files (x86)`, usa:
 
 ```powershell
-& C:\QualityLock\Client\QualityLock.Client.WinForms.exe
+& "${env:ProgramFiles(x86)}\QualityLock\Client\QualityLock.Client.WinForms.exe"
 ```
 
 La pantalla se bloquea; se desbloquea **escaneando/tecleando el `username`** de un usuario
@@ -143,7 +198,7 @@ activo de `usuarios_sistema`.
 | `ASPNETCORE_URLS` | `http://0.0.0.0:5080` |
 | `ASPNETCORE_ENVIRONMENT` | `Production` |
 
-### Estacion (`appsettings.json`)
+### Estacion (`C:\ProgramData\QualityLock\appsettings.json`)
 
 | Clave | Valor |
 |---|---|
@@ -172,8 +227,8 @@ activo de `usuarios_sistema`.
 - **Reiniciar la API:** `Restart-Service QualityLockApi`.
 - **Actualizar la API:** detener el servicio, reemplazar binarios en `C:\QualityLock\Api`,
   arrancar. La config (variables del servicio) se conserva.
-- **Actualizar una estacion:** volver a correr `Install-Station.ps1` (reemplaza binarios y
-  conserva la configuracion indicada: `StationCode`, `Linea` y secretos).
+- **Actualizar una estacion:** volver a correr el instalador x64/x86 correspondiente
+  (reemplaza binarios y vuelve a pedir la configuracion local).
 - **Refrescar usuarios en una estacion sin reiniciar:** menu de la bandeja →
   **Refrescar usuarios** (o esperar el refresco automatico cada 15 min).
 

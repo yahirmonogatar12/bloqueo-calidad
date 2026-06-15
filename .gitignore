@@ -42,7 +42,8 @@ event-queue.jsonl
 *.suo
 *.userprefs
 *.cache
-
+.codegraph/
+publish/
 # OS noise
 Thumbs.db
 desktop.ini

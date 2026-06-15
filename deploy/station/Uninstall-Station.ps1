@@ -16,6 +16,7 @@ Get-Process -Name "QualityLock.Client.WinForms" -ErrorAction SilentlyContinue |
 
 # Quitar autostart (ambos mecanismos)
 Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
 Get-ScheduledTask -TaskName "QualityLockClient" -ErrorAction SilentlyContinue |
     Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
 

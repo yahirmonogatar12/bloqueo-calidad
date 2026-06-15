@@ -305,9 +305,8 @@ public partial class LockForm : Form
         {
             // Registra la recuperacion (best-effort, online u offline en cola).
             var correlationId = Guid.NewGuid().ToString();
-            var sessionId = Guid.NewGuid();
             EnqueueOfflineEvent(StationEventType.ClientRecovered, "TASK-MANAGER",
-                sessionId, correlationId,
+                sessionId: null, correlationId,
                 new { reason = "TaskManagerOpened", at = DateTime.UtcNow });
 
             // Desbloqueo visual: quita el hook de teclado, restaura el taskmgr y oculta
@@ -452,7 +451,7 @@ public partial class LockForm : Form
             return;
         }
 
-        var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var configPath = AppConstants.ClientConfigFile;
         using var setup = new StationSetupForm(_api, _localState, _adminPin, configPath);
         setup.ShowDialog();
 
@@ -479,7 +478,7 @@ public partial class LockForm : Form
                         DateTime.UtcNow, IsOnline: true, Line: _api.Line));
                 else
                     EnqueueOfflineEvent(StationEventType.AutoLock, _currentBadge,
-                        _currentSessionId, Guid.NewGuid().ToString(), new { reason = "ServiceStopped" });
+                        sessionId: null, Guid.NewGuid().ToString(), new { reason = "ServiceStopped" });
             }
             catch { /* salimos de todos modos */ }
         }
@@ -785,10 +784,10 @@ public partial class LockForm : Form
         else
         {
             _currentSessionId = Guid.NewGuid();
-            // Queue an UnlockGranted event as a proper StationEventRequest so the
-            // offline sync service can replay it against /api/events later.
+            // Offline sessions are local-only; the server has no matching
+            // station_sessions_QA row, so queued audit events must not carry it.
             EnqueueOfflineEvent(StationEventType.UnlockGranted, badgeCode,
-                _currentSessionId, correlationId, null);
+                sessionId: null, correlationId, null);
         }
 
         UnlockUi(displayName, role);
@@ -846,10 +845,10 @@ public partial class LockForm : Form
             }
             else
             {
-                // Session was opened offline — queue the lock event for later sync
-                // instead of calling the API as if it were online (which silently failed).
+                // Session was opened offline: queue the lock audit without the
+                // local-only session id.
                 EnqueueOfflineEvent(StationEventType.AutoLock, _currentBadge,
-                    _currentSessionId, Guid.NewGuid().ToString(),
+                    sessionId: null, Guid.NewGuid().ToString(),
                     new { reason = "AutoLock" });
             }
 
@@ -965,6 +964,8 @@ public partial class LockForm : Form
 
     /// <summary>
     /// Serializes a <see cref="StationEventRequest"/> to the local offline queue.
+    /// Offline events are audit-only and intentionally omit SessionId because the
+    /// server has no station_sessions_QA row for a local-only session.
     /// DetailsJson is produced by the serializer (never string interpolation) so
     /// reasons/comments with quotes cannot corrupt the audit record.
     /// </summary>
@@ -977,7 +978,7 @@ public partial class LockForm : Form
             : System.Text.Json.JsonSerializer.Serialize(details);
 
         var evt = new StationEventRequest(
-            _stationCode, badgeCode, sessionId, type,
+            _stationCode, badgeCode, null, type,
             DateTime.UtcNow, detailsJson, "Client-Offline", correlationId, Line: _api.Line);
 
         _localState.AppendEventQueue(

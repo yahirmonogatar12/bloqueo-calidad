@@ -31,6 +31,7 @@ public class SessionBadgeForm : Form
         StartPosition   = FormStartPosition.Manual;
         TopMost         = true;
         ShowInTaskbar   = false;
+        KeyPreview      = true;
         Width           = 340;
         Height          = 116;
         BackColor       = Color.FromArgb(30, 120, 30);
@@ -75,7 +76,11 @@ public class SessionBadgeForm : Form
             Font      = new Font("Segoe UI Semibold", 9, FontStyle.Bold),
             TabStop   = false
         };
-        _btnLock.Click += (_, _) => LockRequested?.Invoke();
+        // Solo el clic real del mouse cierra la sesion. Un lector tipo teclado puede
+        // mandar Enter tras el codigo escaneado; no debe activar este boton por foco.
+        _btnLock.MouseClick += (_, _) => LockRequested?.Invoke();
+        _btnLock.KeyDown += SuppressKeyboardClose;
+        KeyDown += SuppressKeyboardClose;
 
         Controls.Add(_lblUser);
         Controls.Add(_lblRole);
@@ -128,6 +133,31 @@ public class SessionBadgeForm : Form
     {
         if (!Visible) _timer.Stop();
         base.OnVisibleChanged(e);
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (IsKeyboardCloseKey(keyData)) return true;
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    protected override bool ProcessDialogKey(Keys keyData)
+    {
+        if (IsKeyboardCloseKey(keyData)) return true;
+        return base.ProcessDialogKey(keyData);
+    }
+
+    private static void SuppressKeyboardClose(object? sender, KeyEventArgs e)
+    {
+        if (!IsKeyboardCloseKey(e.KeyCode)) return;
+        e.Handled = true;
+        e.SuppressKeyPress = true;
+    }
+
+    private static bool IsKeyboardCloseKey(Keys keyData)
+    {
+        var keyCode = keyData & Keys.KeyCode;
+        return keyCode is Keys.Enter or Keys.Space;
     }
 
     private void OnDragStart(object? sender, MouseEventArgs e)

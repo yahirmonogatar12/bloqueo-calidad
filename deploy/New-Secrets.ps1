@@ -3,6 +3,7 @@
     Genera claves criptograficamente fuertes para QualityLock:
       - Jwt:SigningKey   (firma de los tokens JWT, >= 32 bytes)
       - Auth:ClientApiKey (clave que cada estacion presenta para obtener token)
+      - BypassHmacSecret  (firma de bypass locales de contingencia)
 
 .DESCRIPTION
     Las claves se generan con RNGCryptoServiceProvider (no Random). Por defecto solo
@@ -22,6 +23,7 @@
 param(
     [int]$SigningKeyBytes = 48,      # 48 bytes -> 64 chars base64, holgado sobre el minimo de 32
     [int]$ClientKeyBytes  = 32,
+    [int]$BypassKeyBytes  = 32,
     [string]$OutFile
 )
 
@@ -34,15 +36,18 @@ function New-RandomBase64([int]$bytes) {
 
 $signingKey = New-RandomBase64 $SigningKeyBytes
 $clientKey  = New-RandomBase64 $ClientKeyBytes
+$bypassKey  = New-RandomBase64 $BypassKeyBytes
 
 Write-Host ""
 Write-Host "=== Claves generadas para QualityLock ===" -ForegroundColor Cyan
 Write-Host "Jwt:SigningKey      = $signingKey"
 Write-Host "Auth:ClientApiKey   = $clientKey"
+Write-Host "BypassHmacSecret    = $bypassKey"
 Write-Host ""
 Write-Host "IMPORTANTE:" -ForegroundColor Yellow
 Write-Host "  * Jwt:SigningKey  -> SOLO en el servidor."
 Write-Host "  * Auth:ClientApiKey -> en el servidor Y en cada estacion (debe coincidir)."
+Write-Host "  * BypassHmacSecret -> en cada estacion y al generar bypass.json."
 Write-Host "  * NUNCA subas estas claves a git."
 Write-Host ""
 
@@ -55,6 +60,7 @@ Jwt__SigningKey=$signingKey
 Jwt__Issuer=QualityLock.Api
 Jwt__Audience=QualityLock.Clients
 Auth__ClientApiKey=$clientKey
+BypassHmacSecret=$bypassKey
 Admin__MinRoleLevel=3
 ASPNETCORE_URLS=http://0.0.0.0:5080
 ASPNETCORE_ENVIRONMENT=Production

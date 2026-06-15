@@ -7,7 +7,8 @@
     - Copia los binarios publicados del cliente a la carpeta destino.
     - Escribe appsettings.json con el StationCode, Linea, ApiBaseUrl, ClientApiKey y
       secreto de bypass de ESTA estacion.
-    - Registra el arranque automatico (clave Run del usuario, o tarea programada al logon).
+    - Registra el arranque automatico en HKLM Run para cualquier usuario.
+    - Elimina la tarea programada heredada QualityLockClient, si existe.
     El cliente es una app de escritorio fullscreen: corre en la sesion interactiva del
     usuario, NO como servicio.
 
@@ -35,8 +36,8 @@
     Generate-Bypass.ps1).
 
 .PARAMETER Autostart
-    Mecanismo de arranque: 'Run' (clave Run del usuario actual) o 'Task' (tarea
-    programada al logon, sobrevive a varios usuarios). Por defecto 'Task'.
+    Mecanismo de arranque: 'MachineRun' (HKLM Run, cualquier usuario) o 'None'.
+    El valor legacy 'Run' se acepta como alias de 'MachineRun'. Por defecto 'MachineRun'.
 
 .EXAMPLE
     .\Install-Station.ps1 -SourceDir .\publish\Client -InstallDir C:\QualityLock\Client `
@@ -55,7 +56,7 @@ param(
     [string]$AdminPin = "ISEMM2026",
     [bool]$RequireScan = $true,
     [int]$ScanMaxAvgKeyMs = 40,
-    [ValidateSet('Run','Task')] [string]$Autostart = 'Task'
+    [ValidateSet('MachineRun','Run','None')] [string]$Autostart = 'MachineRun'
 )
 $ErrorActionPreference = "Stop"
 
@@ -117,28 +118,35 @@ $config = [ordered]@{
     RequireScan      = $RequireScan
     ScanMaxAvgKeyMs  = $ScanMaxAvgKeyMs
 }
-$cfgPath = Join-Path $installDirPath "appsettings.json"
+$programDataDir = Join-Path $env:ProgramData "QualityLock"
+New-Item -ItemType Directory -Force -Path $programDataDir | Out-Null
+& icacls $programDataDir /grant "*S-1-5-32-545:(OI)(CI)M" | Out-Null
+
+$cfgPath = Join-Path $programDataDir "appsettings.json"
 $config | ConvertTo-Json | Set-Content -Path $cfgPath -Encoding UTF8
 Write-Host "Config escrita: $cfgPath (StationCode=$StationCode, Linea=$Linea)" -ForegroundColor Green
 
 $installedExe = Join-Path $installDirPath $exeName
 
 # --- Arranque automatico ---
+Get-ScheduledTask -TaskName "QualityLockClient" -ErrorAction SilentlyContinue |
+    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
+
 switch ($Autostart) {
-    'Run' {
-        $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    'MachineRun' {
+        $runKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
         New-ItemProperty -Path $runKey -Name "QualityLockClient" -Value "`"$installedExe`"" -PropertyType String -Force | Out-Null
-        Write-Host "Autostart registrado en la clave Run del usuario actual." -ForegroundColor Green
+        Write-Host "Autostart registrado en HKLM Run para cualquier usuario." -ForegroundColor Green
     }
-    'Task' {
-        $taskName = "QualityLockClient"
-        Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-        $action  = New-ScheduledTaskAction -Execute $installedExe
-        $trigger = New-ScheduledTaskTrigger -AtLogOn
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
-        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
-            -Description "Pantalla de bloqueo QualityLock para la estacion $StationCode" -Force | Out-Null
-        Write-Host "Autostart registrado como tarea programada '$taskName' (al iniciar sesion)." -ForegroundColor Green
+    'Run' {
+        $runKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+        New-ItemProperty -Path $runKey -Name "QualityLockClient" -Value "`"$installedExe`"" -PropertyType String -Force | Out-Null
+        Write-Host "Autostart registrado en HKLM Run para cualquier usuario." -ForegroundColor Green
+    }
+    'None' {
+        Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
+        Write-Host "Autostart no registrado." -ForegroundColor Yellow
     }
 }
 

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using QualityLock.Client.WinForms.Services;
+using QualityLock.Shared.Constants;
 using QualityLock.Shared.DTOs;
 using QualityLock.Shared.Enums;
 
@@ -273,9 +274,7 @@ public class StationSetupForm : Form
     {
         try
         {
-            var config = new ConfigurationBuilder()
-                .AddJsonFile(_configPath, optional: true)
-                .Build();
+            var config = LoadConfig();
 
             _txtApiUrl.Text = config["ApiBaseUrl"] ?? _api.BaseAddress;
             _txtStationCode.Text = config["StationCode"] ?? string.Empty;
@@ -384,9 +383,7 @@ public class StationSetupForm : Form
         try
         {
             // Preserve existing secrets/keys instead of overwriting them with placeholders.
-            var existing = new ConfigurationBuilder()
-                .AddJsonFile(_configPath, optional: true)
-                .Build();
+            var existing = LoadConfig();
 
             // Si el campo del PIN quedo vacio, conserva el PIN existente: nunca lo borres
             // al guardar (dejaria la estacion sin via de recuperacion offline).
@@ -407,6 +404,7 @@ public class StationSetupForm : Form
                 ScanMaxAvgKeyMs = (int)_numScanMaxMs.Value
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
+            Directory.CreateDirectory(Path.GetDirectoryName(_configPath) ?? AppConstants.LocalDataPath);
             File.WriteAllText(_configPath, json);
             SetResult("✔  Configuración guardada.", Color.Green);
 
@@ -490,6 +488,20 @@ public class StationSetupForm : Form
     {
         _lblResult.Text = text;
         _lblResult.ForeColor = color;
+    }
+
+    private IConfigurationRoot LoadConfig()
+    {
+        var exeConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var builder = new ConfigurationBuilder();
+
+        if (File.Exists(exeConfigPath))
+            builder.AddJsonFile(exeConfigPath, optional: true);
+
+        if (File.Exists(_configPath))
+            builder.AddJsonFile(_configPath, optional: true);
+
+        return builder.Build();
     }
 
     // ── UI factory helpers ────────────────────────────────────

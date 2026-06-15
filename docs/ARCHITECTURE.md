@@ -68,7 +68,8 @@ La API usa `X-Correlation-Id`. Si el cliente no lo manda, `CorrelationIdMiddlewa
 
 ## Flujo online
 
-1. El cliente inicia, lee `appsettings.json` y crea `HttpClient`.
+1. El cliente inicia, lee `C:\ProgramData\QualityLock\appsettings.json` (con fallback
+   al `appsettings.json` junto al EXE en desarrollo) y crea `HttpClient`.
 2. Si falta `StationCode` o se usa `--setup`, abre `StationSetupForm`.
 3. Al arrancar intenta `GET /api/stations/{stationCode}/bootstrap`.
 4. Si bootstrap responde, guarda `operator-cache.json`.
@@ -129,11 +130,15 @@ API:
 Cliente:
 
 - `StationCode`
+- `Linea`
 - `ApiBaseUrl`
+- `ClientApiKey`
 - `BypassHmacSecret`
+- `AdminPin`
 
 Paths locales definidos en `QualityLock.Shared.Constants.AppConstants`:
 
+- `C:\ProgramData\QualityLock\appsettings.json`
 - `C:\ProgramData\QualityLock\client-state.json`
 - `C:\ProgramData\QualityLock\operator-cache.json`
 - `C:\ProgramData\QualityLock\event-queue.jsonl`

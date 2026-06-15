@@ -150,6 +150,13 @@ El perfil HTTP de desarrollo usa `http://localhost:5080`.
 
 ### Cliente
 
+En estaciones instaladas, el cliente lee primero:
+
+```text
+C:\ProgramData\QualityLock\appsettings.json
+```
+
+En desarrollo, si ese archivo no existe, usa como fallback
 `src/QualityLock.Client.WinForms/appsettings.json`:
 
 ```json
@@ -179,7 +186,8 @@ El perfil HTTP de desarrollo usa `http://localhost:5080`.
   esta trabajando, no se bloquea. El indicador de sesion tambien tiene un boton
   **"Cerrar sesion"** para bloquear manualmente.
 
-Si `StationCode` esta vacio o se ejecuta con `--setup`, abre el panel de configuracion de estacion.
+Si `StationCode` esta vacio o se ejecuta con `--setup`, abre el panel de configuracion
+de estacion y guarda los cambios en `C:\ProgramData\QualityLock\appsettings.json`.
 
 ## Endpoints
 
@@ -210,7 +218,8 @@ Todos los endpoints requieren `Authorization: Bearer <token>` salvo
    dotnet run --project src/QualityLock.Api
    ```
 
-4. Configurar el cliente con `StationCode`, `ApiBaseUrl` y `BypassHmacSecret`.
+4. Configurar el cliente con `StationCode`, `ApiBaseUrl`, `ClientApiKey` y
+   `BypassHmacSecret`.
 5. Ejecutar el cliente:
 
    ```bash

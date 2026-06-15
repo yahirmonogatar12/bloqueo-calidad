@@ -8,10 +8,18 @@ namespace QualityLock.Client.WinForms;
 
 static class Program
 {
+    private const string InstanceMutexName = @"Local\QualityLockClient";
+
     [STAThread]
     static void Main(string[] args)
     {
+        using var instanceMutex = new Mutex(true, InstanceMutexName, out var createdNew);
+        if (!createdNew) return;
+
         ApplicationConfiguration.Initialize();
+
+        Directory.CreateDirectory(AppConstants.LocalDataPath);
+        Directory.CreateDirectory(AppConstants.LogsFolder);
 
         // Always restore Task Manager on startup — clears any stale key left
         // behind if the previous session crashed before unlocking.
@@ -23,12 +31,8 @@ static class Program
         }
         catch { /* ignore */ }
 
-        var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-
-        var config = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true)
-            .Build();
+        var configPath = AppConstants.ClientConfigFile;
+        var config = BuildConfiguration();
 
         var stationCode  = config["StationCode"] ?? string.Empty;
         var line         = config["Linea"] ?? string.Empty;
@@ -49,9 +53,6 @@ static class Program
         // para considerarlo escaner (default 40).
         var requireScan = !string.Equals(config["RequireScan"], "false", StringComparison.OrdinalIgnoreCase);
         var scanMaxAvgKeyMs = int.TryParse(config["ScanMaxAvgKeyMs"], out var ms) && ms > 0 ? ms : 40;
-
-        Directory.CreateDirectory(AppConstants.LocalDataPath);
-        Directory.CreateDirectory(AppConstants.LogsFolder);
 
         var http = new HttpClient
         {
@@ -85,10 +86,7 @@ static class Program
                 return;   // user closed or stopped service — exit
 
             // Re-read config after setup form may have saved new values
-            config = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: true)
-                .Build();
+            config = BuildConfiguration();
 
             stationCode  = config["StationCode"] ?? string.Empty;
             apiBaseUrl   = config["ApiBaseUrl"]  ?? apiBaseUrl;
@@ -140,5 +138,19 @@ static class Program
             lockForm.Shown += (_, _) => lockForm.EnableScanDiagnostics();
 
         Application.Run(lockForm);
+    }
+
+    private static IConfigurationRoot BuildConfiguration()
+    {
+        var exeConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+
+        var builder = new ConfigurationBuilder();
+        if (File.Exists(exeConfigPath))
+            builder.AddJsonFile(exeConfigPath, optional: true);
+
+        if (File.Exists(AppConstants.ClientConfigFile))
+            builder.AddJsonFile(AppConstants.ClientConfigFile, optional: true);
+
+        return builder.Build();
     }
 }
