@@ -25,23 +25,14 @@ public sealed class QrInputFocusOptions
         return new QrInputFocusOptions
         {
             Enabled = string.Equals(section["Enabled"], "true", StringComparison.OrdinalIgnoreCase),
-            DelayMilliseconds = ReadNonNegativeInt(section["DelayMilliseconds"], 500),
-            RetryCount = ReadPositiveInt(section["RetryCount"], 3),
+            DelayMilliseconds = ConfigParse.NonNegativeInt(section["DelayMilliseconds"], 500),
+            RetryCount = ConfigParse.PositiveInt(section["RetryCount"], 3),
             ProcessName = section["ProcessName"] ?? "",
             WindowTitle = section["WindowTitle"] ?? section["Title"] ?? "",
-            MatchMode = ParseEnum(section["MatchMode"], WindowTitleMatchMode.Exact),
+            MatchMode = ConfigParse.Enum(section["MatchMode"], WindowTitleMatchMode.Exact),
             Input = QrInputTarget.FromConfiguration(section.GetSection("Input"))
         };
     }
-
-    private static int ReadPositiveInt(string? value, int fallback)
-        => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : fallback;
-
-    private static int ReadNonNegativeInt(string? value, int fallback)
-        => int.TryParse(value, out var parsed) && parsed >= 0 ? parsed : fallback;
-
-    private static T ParseEnum<T>(string? value, T fallback) where T : struct
-        => Enum.TryParse<T>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
 }
 
 public sealed class QrInputTarget

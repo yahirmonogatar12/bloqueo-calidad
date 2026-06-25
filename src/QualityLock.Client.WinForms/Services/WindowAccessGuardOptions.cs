@@ -77,10 +77,10 @@ public sealed class WindowAccessRule
             Name = section["Name"] ?? title,
             ProcessName = processName,
             WindowTitle = title,
-            MatchMode = ParseEnum(section["MatchMode"], WindowTitleMatchMode.Exact),
-            BlockAction = ParseEnum(section["BlockAction"] ?? section["Action"], WindowBlockAction.Close),
-            AllowedRoles = ReadList(section.GetSection("AllowedRoles")),
-            AllowedUsers = ReadList(section.GetSection("AllowedUsers"))
+            MatchMode = ConfigParse.Enum(section["MatchMode"], WindowTitleMatchMode.Exact),
+            BlockAction = ConfigParse.Enum(section["BlockAction"] ?? section["Action"], WindowBlockAction.Close),
+            AllowedRoles = ConfigParse.List(section.GetSection("AllowedRoles")),
+            AllowedUsers = ConfigParse.List(section.GetSection("AllowedUsers"))
         };
     }
 
@@ -131,15 +131,6 @@ public sealed class WindowAccessRule
         return false;
     }
 
-    private static IReadOnlyList<string> ReadList(IConfigurationSection section)
-        => section.GetChildren()
-            .Select(c => c.Value?.Trim())
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(v => v!)
-            .ToArray();
-
-    private static T ParseEnum<T>(string? value, T fallback) where T : struct
-        => Enum.TryParse<T>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
 }
 
 public enum WindowTitleMatchMode
