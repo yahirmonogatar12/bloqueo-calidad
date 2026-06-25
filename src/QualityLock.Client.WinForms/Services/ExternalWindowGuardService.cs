@@ -15,28 +15,38 @@ public sealed class ExternalWindowGuardService
 
     public bool Enabled => _options.Enabled && _options.Rules.Count > 0;
     public int PollMilliseconds => Math.Max(250, _options.PollMilliseconds);
+    public bool AllowManualLogin => _options.AllowManualLogin;
 
-    // Estado por-handle para reglas PromptAuthorization.
-    private readonly Dictionary<IntPtr, AuthorizedWindow> _authorized = []; // revelada por un autorizador
-    private readonly HashSet<IntPtr> _pending = [];                         // overlay abierto para este hwnd
+    // Estado por (regla + proceso) para reglas PromptAuthorization. Se autoriza el PROCESO,
+    // no el HWND: multitool abre/cierra subventanas (handles distintos) sin re-pedir auth.
+    // El ajuste se cronometra hasta que el proceso ya no tiene ninguna ventana de esa regla.
+    private readonly Dictionary<AuthKey, AuthorizedWindow> _authorized = []; // revelada por un autorizador
+    private readonly HashSet<AuthKey> _pending = [];                         // overlay abierto para este proceso+regla
+
+    private readonly record struct AuthKey(string RuleName, uint ProcessId);
 
     public event Action<WindowBlockedEvent>? WindowBlocked;
     public event Action<AuthorizationRequest>? AuthorizationRequired;
     /// <summary>Se dispara cuando una ventana autorizada se cierra, con el tiempo que estuvo abierta.</summary>
     public event Action<AuthorizationClosedEvent>? AuthorizationClosed;
 
-    /// <summary>Autorizador válido: recuerda la ventana como autorizada (no se vuelve a pedir).</summary>
+    /// <summary>Autorizador válido: recuerda el PROCESO como autorizado (no se vuelve a pedir
+    /// para ninguna ventana suya que matchee la regla, incl. subventanas que abra después).</summary>
     public void MarkAuthorized(IntPtr hwnd, AuthorizationRequest req, string? badgeCode, string? displayName, string? role)
     {
-        _pending.Remove(hwnd);
-        _authorized[hwnd] = new AuthorizedWindow(
+        GetWindowThreadProcessId(hwnd, out var pid);
+        var key = new AuthKey(req.Rule.Name, pid);
+        _pending.Remove(key);
+        _authorized[key] = new AuthorizedWindow(
             req.Rule.Name, req.ProcessName, req.WindowTitle, badgeCode, displayName, role, DateTime.UtcNow);
     }
 
     /// <summary>Autorización cancelada: cierra la ventana restringida (no se autorizó).</summary>
     public void CancelAuthorization(IntPtr hwnd)
     {
-        _pending.Remove(hwnd);
+        GetWindowThreadProcessId(hwnd, out var pid);
+        // No conocemos la regla aquí; quitamos cualquier pendiente de este proceso.
+        _pending.RemoveWhere(k => k.ProcessId == pid);
         Apply(WindowBlockAction.Close, hwnd);
     }
 
@@ -52,27 +62,59 @@ public sealed class ExternalWindowGuardService
     {
         if (!Enabled) return;
 
-        var seen = new HashSet<IntPtr>();
+        // Claves (regla+proceso) con al menos una ventana viva en este barrido. El proceso
+        // sigue "presente" mientras tenga cualquier ventana de la regla (su principal o una
+        // subventana), así que cerrar y reabrir subventanas no corta el ajuste.
+        var seenKeys = new HashSet<AuthKey>();
         foreach (var window in EnumerateTopLevelWindows())
         {
-            seen.Add(window.Handle);
             foreach (var rule in _options.Rules)
             {
                 if (!rule.Matches(window.ProcessName, window.Title))
                     continue;
 
+                // TrackOnly: no bloquea ni pide autorización. Solo cronometra: rastrea el
+                // proceso para que el barrido de cierre emita AuthorizationClosed con el tiempo.
+                if (rule.BlockAction == WindowBlockAction.TrackOnly)
+                {
+                    var trackKey = new AuthKey(rule.Name, window.ProcessId);
+                    seenKeys.Add(trackKey);
+                    if (!_authorized.ContainsKey(trackKey))
+                    {
+                        _authorized[trackKey] = new AuthorizedWindow(
+                            rule.Name, window.ProcessName, window.Title, badgeCode, null, role, DateTime.UtcNow);
+                    }
+                    break;
+                }
+
+                if (rule.BlockAction == WindowBlockAction.PromptAuthorization)
+                    seenKeys.Add(new AuthKey(rule.Name, window.ProcessId));
+
                 if (rule.Allows(badgeCode, role))
+                {
+                    // El operador ya tiene permiso, así que no se le pide autorización.
+                    // Aun así cronometramos el tiempo de ajuste: rastreamos el proceso como
+                    // autorizado para que el barrido de cierre emita AuthorizationClosed.
+                    var autoKey = new AuthKey(rule.Name, window.ProcessId);
+                    if (rule.BlockAction == WindowBlockAction.PromptAuthorization &&
+                        !_authorized.ContainsKey(autoKey))
+                    {
+                        _authorized[autoKey] = new AuthorizedWindow(
+                            rule.Name, window.ProcessName, window.Title, badgeCode, null, role, DateTime.UtcNow);
+                    }
                     continue;
+                }
 
                 if (rule.BlockAction == WindowBlockAction.PromptAuthorization)
                 {
-                    if (_authorized.ContainsKey(window.Handle)) continue; // ya autorizada
-                    if (_pending.Contains(window.Handle)) continue;       // overlay abierto
+                    var key = new AuthKey(rule.Name, window.ProcessId);
+                    if (_authorized.ContainsKey(key)) continue; // proceso ya autorizado
+                    if (_pending.Contains(key)) continue;       // overlay abierto
 
                     // No ocultamos la ventana (SW_HIDE la sacaría del enum -> no la
                     // volveríamos a ver al cancelar). El overlay topmost a pantalla
                     // completa la tapa mientras se pide autorización.
-                    _pending.Add(window.Handle);
+                    _pending.Add(key);
                     AuthorizationRequired?.Invoke(new AuthorizationRequest(
                         rule, window.ProcessName, window.Title, window.Handle));
                     break;
@@ -90,18 +132,18 @@ public sealed class ExternalWindowGuardService
             }
         }
 
-        // Barrido: al cerrarse la ventana su HWND desaparece del enum. Una ventana
-        // autorizada que ya no aparece = se cerró -> registrar el tiempo que estuvo
-        // abierta y olvidarla (al reabrir vuelve a pedir autorización).
-        var closed = _authorized.Where(kv => !seen.Contains(kv.Key)).ToList();
-        foreach (var (handle, w) in closed)
+        // Barrido: un proceso autorizado cuya regla ya no tiene NINGUNA ventana viva =
+        // se cerró la ventana de ajuste -> registrar el tiempo total y olvidarlo (al
+        // reabrir vuelve a pedir autorización).
+        var closed = _authorized.Where(kv => !seenKeys.Contains(kv.Key)).ToList();
+        foreach (var (key, w) in closed)
         {
-            _authorized.Remove(handle);
+            _authorized.Remove(key);
             var seconds = (int)Math.Max(0, (DateTime.UtcNow - w.AuthorizedAtUtc).TotalSeconds);
             AuthorizationClosed?.Invoke(new AuthorizationClosedEvent(
                 w.RuleName, w.ProcessName, w.WindowTitle, w.BadgeCode, w.DisplayName, w.Role, seconds));
         }
-        _pending.IntersectWith(seen);
+        _pending.IntersectWith(seenKeys);
     }
 
     private static void Apply(WindowBlockAction action, IntPtr hwnd)
@@ -144,7 +186,7 @@ public sealed class ExternalWindowGuardService
             if (string.IsNullOrWhiteSpace(processName))
                 return true;
 
-            windows.Add(new ExternalWindowInfo(hwnd, processName, title));
+            windows.Add(new ExternalWindowInfo(hwnd, processId, processName, title));
             return true;
         }, IntPtr.Zero);
 
@@ -171,7 +213,7 @@ public sealed class ExternalWindowGuardService
         }
     }
 
-    private sealed record ExternalWindowInfo(IntPtr Handle, string ProcessName, string Title);
+    private sealed record ExternalWindowInfo(IntPtr Handle, uint ProcessId, string ProcessName, string Title);
 
     private const int WM_CLOSE = 0x0010;
     private const int SW_HIDE = 0;

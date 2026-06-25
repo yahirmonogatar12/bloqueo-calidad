@@ -4,7 +4,8 @@ public enum StationType
 {
     ICT,
     FCT,
-    Packing
+    Packing,
+    Vision
 }
 
 public enum SessionStatus

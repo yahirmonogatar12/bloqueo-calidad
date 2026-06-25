@@ -36,6 +36,8 @@ public class StationSetupForm : Form
     private CheckBox _chkActive = null!;
 
     // ── Seguridad / bloqueo ────────────────────────────────────
+    private ComboBox _cmbStationMode = null!;
+    private CheckBox _chkNoAutoLock = null!;
     private NumericUpDown _numAutoLock = null!;
     private CheckBox _chkRequireScan = null!;
     private NumericUpDown _numScanMaxMs = null!;
@@ -43,6 +45,7 @@ public class StationSetupForm : Form
 
     // ── Ventanas externas protegidas ───────────────────────────
     private CheckBox _chkWindowGuardEnabled = null!;
+    private CheckBox _chkWindowGuardManualLogin = null!;
     private NumericUpDown _numWindowGuardPollMs = null!;
     private ComboBox _cmbOpenWindows = null!;
     private DataGridView _gridWindowRules = null!;
@@ -200,12 +203,32 @@ public class StationSetupForm : Form
         scroll.Controls.Add(cardStation);
 
         // ── Tarjeta: Seguridad y bloqueo ──
-        var cardSec = MakeCard("Seguridad y bloqueo", out var bodySec, 168);
+        var cardSec = MakeCard("Seguridad y bloqueo", out var bodySec, 238);
         int qy = 6;
+        bodySec.Controls.Add(MakeLabel("Modo de estación:", LabelX, qy + 2));
+        _cmbStationMode = new ComboBox
+        {
+            Location = new Point(FieldX, qy), Width = 160, Font = Font,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _cmbStationMode.Items.AddRange(["Normal", "Free"]);
+        _cmbStationMode.SelectedIndex = 0;
+        bodySec.Controls.Add(_cmbStationMode);
+        bodySec.Controls.Add(MakeHint("Free: sin bloqueo ni login; solo mide tiempo de ajuste.", FieldX + 170, qy + 2));
+        qy += 36;
         bodySec.Controls.Add(MakeLabel("Inactividad (min):", LabelX, qy + 2));
         _numAutoLock = MakeNumeric(FieldX, qy, 1, 1440, 5, 1);
         bodySec.Controls.Add(_numAutoLock);
         bodySec.Controls.Add(MakeHint("Minutos sin mouse/teclado antes de bloquear.", FieldX + 100, qy + 2));
+        qy += 32;
+        _chkNoAutoLock = new CheckBox
+        {
+            Text = "Sin bloqueo por inactividad (no bloquear nunca)", Location = new Point(FieldX, qy),
+            AutoSize = true, Checked = false, Font = Font
+        };
+        // Al desactivar el bloqueo, el campo de minutos no aplica.
+        _chkNoAutoLock.CheckedChanged += (_, _) => _numAutoLock.Enabled = !_chkNoAutoLock.Checked;
+        bodySec.Controls.Add(_chkNoAutoLock);
         qy += 36;
         _chkRequireScan = new CheckBox
         {
@@ -311,7 +334,7 @@ public class StationSetupForm : Form
         scroll.Controls.Add(cardQrInput);
 
         // ── Tarjeta: Ventanas protegidas ──
-        var cardWindows = MakeCard("Ventanas protegidas", out var bodyWindows, 286);
+        var cardWindows = MakeCard("Ventanas protegidas", out var bodyWindows, 312);
         _chkWindowGuardEnabled = new CheckBox
         {
             Text = "Activar bloqueo de ventanas externas",
@@ -321,6 +344,16 @@ public class StationSetupForm : Form
             Font = Font
         };
         bodyWindows.Controls.Add(_chkWindowGuardEnabled);
+        // Si se desmarca, el overlay de autorización solo acepta escáner (sin usuario+contraseña).
+        _chkWindowGuardManualLogin = new CheckBox
+        {
+            Text = "Pedir usuario y contraseña al autorizar (si se desmarca: solo escáner)",
+            Location = new Point(LabelX, 284),
+            AutoSize = true,
+            Checked = true,
+            Font = Font
+        };
+        bodyWindows.Controls.Add(_chkWindowGuardManualLogin);
         bodyWindows.Controls.Add(MakeLabel("Revisión (ms):", 365, 6));
         _numWindowGuardPollMs = MakeNumeric(466, 4, 250, 10000, 500, 250);
         bodyWindows.Controls.Add(_numWindowGuardPollMs);
@@ -472,6 +505,10 @@ public class StationSetupForm : Form
 
             _txtApiUrl.Text = config["ApiBaseUrl"] ?? _api.BaseAddress;
             _txtStationCode.Text = config["StationCode"] ?? string.Empty;
+            // Tipo de estacion (ICT/FCT/Packing/Vision): selecciona el guardado si es valido.
+            var savedType = config["StationType"];
+            if (!string.IsNullOrWhiteSpace(savedType) && _cmbStationType.Items.Contains(savedType))
+                _cmbStationType.SelectedItem = savedType;
             // Linea (host_name): de config si ya se guardo, si no el nombre del equipo.
             _txtHostName.Text = config["Linea"] ?? Environment.MachineName;
 
@@ -481,11 +518,17 @@ public class StationSetupForm : Form
 
             // Seguridad / bloqueo. AutoLockSeconds se guarda en SEGUNDOS, pero el campo
             // se muestra en MINUTOS (redondeando hacia arriba al minuto mas cercano).
-            if (int.TryParse(config["AutoLockSeconds"], out var sec) && sec > 0)
+            // AutoLockSeconds == 0 => bloqueo por inactividad desactivado.
+            var hasAutoLock = int.TryParse(config["AutoLockSeconds"], out var sec);
+            _chkNoAutoLock.Checked = hasAutoLock && sec == 0;
+            _numAutoLock.Enabled = !_chkNoAutoLock.Checked;
+            if (hasAutoLock && sec > 0)
             {
                 var minutes = Math.Max(1, (int)Math.Round(sec / 60.0));
                 if (minutes <= _numAutoLock.Maximum) _numAutoLock.Value = minutes;
             }
+            _cmbStationMode.SelectedItem =
+                string.Equals(config["StationMode"], "Free", StringComparison.OrdinalIgnoreCase) ? "Free" : "Normal";
             _chkRequireScan.Checked = !string.Equals(config["RequireScan"], "false", StringComparison.OrdinalIgnoreCase);
             if (int.TryParse(config["ScanMaxAvgKeyMs"], out var ms) && ms >= _numScanMaxMs.Minimum && ms <= _numScanMaxMs.Maximum)
                 _numScanMaxMs.Value = ms;
@@ -596,12 +639,14 @@ public class StationSetupForm : Form
             var root = new JsonObject
             {
                 ["StationCode"] = _txtStationCode.Text.Trim(),
+                ["StationType"] = _cmbStationType.SelectedItem?.ToString() ?? "ICT",
                 ["Linea"] = _txtHostName.Text.Trim(),
                 ["ApiBaseUrl"] = _txtApiUrl.Text.Trim().TrimEnd('/') + "/",
                 ["BypassHmacSecret"] = existing["BypassHmacSecret"] ?? string.Empty,
                 ["AdminPin"] = pin,
                 ["ClientApiKey"] = existing["ClientApiKey"] ?? string.Empty,
-                ["AutoLockSeconds"] = (int)_numAutoLock.Value * 60,   // minutos (UI) -> segundos
+                ["StationMode"] = _cmbStationMode.SelectedItem?.ToString() ?? "Normal",
+                ["AutoLockSeconds"] = _chkNoAutoLock.Checked ? 0 : (int)_numAutoLock.Value * 60,   // 0 = desactivado; minutos (UI) -> segundos
                 ["RequireScan"] = _chkRequireScan.Checked,
                 ["ScanMaxAvgKeyMs"] = (int)_numScanMaxMs.Value
             };
@@ -1064,6 +1109,7 @@ public class StationSetupForm : Form
 
         var obj = windowGuard as JsonObject;
         _chkWindowGuardEnabled.Checked = JsonBool(obj, "Enabled", true);
+        _chkWindowGuardManualLogin.Checked = JsonBool(obj, "AllowManualLogin", true);
 
         var poll = JsonInt(obj, "PollMilliseconds", 500);
         poll = Math.Clamp(poll, (int)_numWindowGuardPollMs.Minimum, (int)_numWindowGuardPollMs.Maximum);
@@ -1130,6 +1176,7 @@ public class StationSetupForm : Form
         return new JsonObject
         {
             ["Enabled"] = _chkWindowGuardEnabled.Checked,
+            ["AllowManualLogin"] = _chkWindowGuardManualLogin.Checked,
             ["PollMilliseconds"] = (int)_numWindowGuardPollMs.Value,
             ["Rules"] = rules
         };

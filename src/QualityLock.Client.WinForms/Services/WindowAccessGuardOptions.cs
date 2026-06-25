@@ -6,6 +6,9 @@ public sealed class WindowAccessGuardOptions
 {
     public bool Enabled { get; init; } = true;
     public int PollMilliseconds { get; init; } = 500;
+    // Si false, el overlay de autorización solo acepta escáner de gafete (oculta la vía
+    // usuario+contraseña). Útil para estaciones donde solo se autoriza por gafete.
+    public bool AllowManualLogin { get; init; } = true;
     public IReadOnlyList<WindowAccessRule> Rules { get; init; } = DefaultRules();
 
     public static WindowAccessGuardOptions FromConfiguration(IConfiguration configuration)
@@ -15,6 +18,7 @@ public sealed class WindowAccessGuardOptions
             return new WindowAccessGuardOptions();
 
         var enabled = !string.Equals(section["Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+        var allowManualLogin = !string.Equals(section["AllowManualLogin"], "false", StringComparison.OrdinalIgnoreCase);
         var pollMilliseconds = int.TryParse(section["PollMilliseconds"], out var poll) && poll > 0
             ? poll
             : 500;
@@ -31,6 +35,7 @@ public sealed class WindowAccessGuardOptions
         {
             Enabled = enabled,
             PollMilliseconds = pollMilliseconds,
+            AllowManualLogin = allowManualLogin,
             Rules = rules.Count > 0 ? rules : DefaultRules()
         };
     }
@@ -149,5 +154,8 @@ public enum WindowBlockAction
     Close,
     Hide,
     Minimize,
-    PromptAuthorization
+    PromptAuthorization,
+    // No bloquea ni pide nada: solo cronometra el tiempo que la ventana estuvo abierta
+    // (para estaciones sin personal, ej. Vision).
+    TrackOnly
 }

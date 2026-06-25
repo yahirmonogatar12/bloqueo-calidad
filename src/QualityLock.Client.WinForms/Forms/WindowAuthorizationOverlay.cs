@@ -23,7 +23,8 @@ public static class WindowAuthorizationOverlay
         ApiClientService api,
         LocalStateService localState,
         string stationCode,
-        int scanMaxAvgKeyMs)
+        int scanMaxAvgKeyMs,
+        bool allowManualLogin = true)
     {
         using var dlg = new Form
         {
@@ -49,7 +50,9 @@ public static class WindowAuthorizationOverlay
         };
         var lblHint = new Label
         {
-            Text = "Escanee el gafete de un autorizador, o teclee usuario y contraseña.",
+            Text = allowManualLogin
+                ? "Escanee el gafete de un autorizador, o teclee usuario y contraseña."
+                : "Escanee el gafete de un autorizador.",
             AutoSize = false, TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Top,
             Height = 32, ForeColor = Color.White, Font = new Font("Segoe UI", 12)
         };
@@ -101,12 +104,14 @@ public static class WindowAuthorizationOverlay
         var txtBadge = new TextBox { Width = 1, Height = 1, BorderStyle = BorderStyle.None, Top = 0, Left = 0 };
 
         var center = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-        center.Controls.Add(card);
+        if (allowManualLogin) center.Controls.Add(card);
         center.Controls.Add(btnCancel);
         center.Resize += (_, _) =>
         {
             card.Location = new Point((center.Width - card.Width) / 2, (center.Height / 2) - 150);
-            btnCancel.Location = new Point((center.Width - btnCancel.Width) / 2, card.Bottom + 24);
+            // Sin vía manual la tarjeta no está; el botón Cancelar se centra solo.
+            var cancelTop = allowManualLogin ? card.Bottom + 24 : (center.Height / 2);
+            btnCancel.Location = new Point((center.Width - btnCancel.Width) / 2, cancelTop);
         };
 
         dlg.Controls.Add(txtBadge);

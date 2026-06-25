@@ -35,6 +35,9 @@ public partial class LockForm : Form
     private System.Windows.Forms.Timer? _windowGuardTimer;
 
     // ── state ─────────────────────────────────────────────────
+    // Modo Free: estacion sin personal (no hay bloqueo ni login). Solo corre el guard de
+    // ventanas para cronometrar el tiempo de ajuste. Se setea desde el constructor.
+    private readonly bool _freeMode;
     private bool _isLocked = true;
     private bool _processing = false;
     // True mientras hay un dialogo modal abierto (ej. pedir contrasena): suspende el
@@ -70,8 +73,10 @@ public partial class LockForm : Form
         BypassService bypass, SafeModeService safeMode, AdminPinService adminPin,
         OfflineSyncService offlineSync, OperatorCacheService operatorCache,
         int autoLockSeconds, int scanMaxAvgKeyMs, bool requireScan,
-        WindowAccessGuardOptions windowGuardOptions, QrInputFocusOptions qrInputFocusOptions)
+        WindowAccessGuardOptions windowGuardOptions, QrInputFocusOptions qrInputFocusOptions,
+        bool freeMode = false)
     {
+        _freeMode = freeMode;
         _stationCode = stationCode;
         _api = api;
         _localState = localState;
@@ -80,7 +85,8 @@ public partial class LockForm : Form
         _adminPin = adminPin;
         _offlineSync = offlineSync;
         _operatorCache = operatorCache;
-        _autoLockSeconds = autoLockSeconds > 0 ? autoLockSeconds : AppConstants.AutoLockInactivitySeconds;
+        // 0 (o negativo) = bloqueo por inactividad DESACTIVADO; cualquier positivo = segundos.
+        _autoLockSeconds = autoLockSeconds < 0 ? 0 : autoLockSeconds;
         _scanDetector = new ScanSpeedDetector(scanMaxAvgKeyMs);
         _scanMaxAvgKeyMs = scanMaxAvgKeyMs;
         _requireScan = requireScan;
@@ -94,6 +100,14 @@ public partial class LockForm : Form
         BuildUI();
         SetupTimers();
         SetupTrayIcon();
+
+        // Modo Free: arranca desbloqueada (sin login). El guard de ventanas ya corre con
+        // !_isLocked, asi que cronometra el ajuste; _lastActivity reporta "activo" al heartbeat.
+        if (_freeMode)
+        {
+            _isLocked = false;
+            _lastActivity = DateTime.UtcNow;
+        }
     }
 
     // ─────────────────────────────────────────────────────────
@@ -106,8 +120,8 @@ public partial class LockForm : Form
 
         Text = "QualityLock";
         FormBorderStyle = FormBorderStyle.None;
-        WindowState = FormWindowState.Maximized;
-        TopMost = true;
+        WindowState = _freeMode ? FormWindowState.Minimized : FormWindowState.Maximized;
+        TopMost = !_freeMode;
         ShowInTaskbar = false;
         BackColor = Color.FromArgb(16, 24, 20);   // verde-oscuro, combina con la marca
         KeyPreview = true;
@@ -607,12 +621,12 @@ public partial class LockForm : Form
         try
         {
             var res = WindowAuthorizationOverlay.RequestAuthorization(
-                req, _api, _localState, _stationCode, _scanMaxAvgKeyMs);
+                req, _api, _localState, _stationCode, _scanMaxAvgKeyMs, _windowGuard.AllowManualLogin);
 
             if (res.Authorized)
             {
                 _windowGuard.MarkAuthorized(req.Handle, req, res.BadgeCode, res.DisplayName, res.Role);
-                EnqueueOfflineEvent(StationEventType.WindowAuthorized, res.BadgeCode, null,
+                EnqueueOfflineEvent(StationEventType.WindowAuthorized, res.BadgeCode ?? "N/A", null,
                     Guid.NewGuid().ToString("N"),
                     new { req.ProcessName, req.WindowTitle, res.DisplayName, res.Role, Rule = req.Rule.Name });
             }
@@ -633,7 +647,7 @@ public partial class LockForm : Form
     /// </summary>
     private void WindowGuard_AuthorizationClosed(AuthorizationClosedEvent evt)
     {
-        EnqueueOfflineEvent(StationEventType.WindowClosed, evt.BadgeCode, null,
+        EnqueueOfflineEvent(StationEventType.WindowClosed, evt.BadgeCode ?? "N/A", null,
             Guid.NewGuid().ToString("N"),
             new { evt.ProcessName, evt.WindowTitle, evt.DisplayName, evt.Role, Rule = evt.RuleName, evt.OpenSeconds });
     }
@@ -645,6 +659,16 @@ public partial class LockForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+
+        // Modo Free: estacion sin personal. Sin bloqueo, sin keyhook, sin foco al escaner.
+        // La ventana queda oculta (solo bandeja); el guard de ventanas sigue cronometrando.
+        if (_freeMode)
+        {
+            Hide();
+            _ = _offlineSync.FlushAsync();
+            StartHealthyWatchdog();
+            return;
+        }
 
         // In safe mode we deliberately skip the aggressive lock so an administrator
         // can recover the machine (no keyboard hook).
@@ -951,9 +975,10 @@ public partial class LockForm : Form
         // ── HIDE the lock screen — user gets full desktop access ──
         Hide();
 
-        // ── Start inactivity timer ─────────────────────────────
+        // ── Start inactivity timer (0 = desactivado, no auto-bloquea) ──
         _autoLockTimer.Stop();
-        _autoLockTimer.Start();
+        if (_autoLockSeconds > 0)
+            _autoLockTimer.Start();
 
         if (_qrInputFocus.Enabled)
         {

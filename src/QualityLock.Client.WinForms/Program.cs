@@ -43,16 +43,18 @@ static class Program
                          ?? string.Empty;
 
         // Segundos de inactividad antes del auto-bloqueo. Configurable por estacion
-        // (AutoLockSeconds en appsettings.json); si no es valido, usa el valor por defecto.
-        var autoLockSeconds = int.TryParse(config["AutoLockSeconds"], out var s) && s > 0
-                            ? s
-                            : AppConstants.AutoLockInactivitySeconds;
+        // (AutoLockSeconds en appsettings.json). 0 = bloqueo por inactividad DESACTIVADO
+        // (ej. estaciones Vision). Ausente/invalido (sin la clave) = valor por defecto.
+        var autoLockSeconds = ParseAutoLock(config["AutoLockSeconds"]);
 
         // Anti-tecleo: si RequireScan=true, el desbloqueo directo solo se permite por
         // escaner (entrada rapida). ScanMaxAvgKeyMs = ms promedio maximo entre teclas
         // para considerarlo escaner (default 40).
         var requireScan = !string.Equals(config["RequireScan"], "false", StringComparison.OrdinalIgnoreCase);
         var scanMaxAvgKeyMs = int.TryParse(config["ScanMaxAvgKeyMs"], out var ms) && ms > 0 ? ms : 40;
+        // Modo Free: estacion sin personal (ej. Vision). No hay pantalla de bloqueo ni login;
+        // solo corre el guard de ventanas para cronometrar el tiempo de ajuste.
+        var freeMode = string.Equals(config["StationMode"], "Free", StringComparison.OrdinalIgnoreCase);
         var windowGuardOptions = WindowAccessGuardOptions.FromConfiguration(config);
         var qrInputFocusOptions = QrInputFocusOptions.FromConfiguration(config);
 
@@ -97,11 +99,10 @@ static class Program
             clientApiKey = config["ClientApiKey"]
                          ?? Environment.GetEnvironmentVariable("QUALITYLOCK_CLIENT_API_KEY")
                          ?? clientApiKey;
-            autoLockSeconds = int.TryParse(config["AutoLockSeconds"], out var s2) && s2 > 0
-                            ? s2
-                            : autoLockSeconds;
+            autoLockSeconds = ParseAutoLock(config["AutoLockSeconds"]);
             requireScan = !string.Equals(config["RequireScan"], "false", StringComparison.OrdinalIgnoreCase);
             scanMaxAvgKeyMs = int.TryParse(config["ScanMaxAvgKeyMs"], out var ms2) && ms2 > 0 ? ms2 : scanMaxAvgKeyMs;
+            freeMode = string.Equals(config["StationMode"], "Free", StringComparison.OrdinalIgnoreCase);
             windowGuardOptions = WindowAccessGuardOptions.FromConfiguration(config);
             qrInputFocusOptions = QrInputFocusOptions.FromConfiguration(config);
 
@@ -137,7 +138,7 @@ static class Program
 
         var lockForm = new LockForm(stationCode, api, localState, bypass, safeMode, adminPin,
             offlineSync, operatorCache, autoLockSeconds, scanMaxAvgKeyMs, requireScan,
-            windowGuardOptions, qrInputFocusOptions);
+            windowGuardOptions, qrInputFocusOptions, freeMode);
 
         // --diag: arranca en modo diagnostico de escaner (calibracion del umbral).
         if (args.Contains("--diag", StringComparer.OrdinalIgnoreCase))
@@ -145,6 +146,11 @@ static class Program
 
         Application.Run(lockForm);
     }
+
+    // 0 = desactivado (no auto-bloquea). Valor presente >=0 se respeta tal cual.
+    // Clave ausente o no numerica -> valor por defecto.
+    private static int ParseAutoLock(string? value)
+        => int.TryParse(value, out var s) && s >= 0 ? s : AppConstants.AutoLockInactivitySeconds;
 
     private static IConfigurationRoot BuildConfiguration()
     {

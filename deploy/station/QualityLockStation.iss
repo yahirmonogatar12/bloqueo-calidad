@@ -292,6 +292,11 @@ begin
     ConfigDir := ExpandConstant('{commonappdata}\QualityLock');
     ConfigPath := ConfigDir + '\appsettings.json';
     ForceDirectories(ConfigDir);
-    SaveStringToFile(ConfigPath, BuildConfigJson(), False);
+    // Solo escribir la config en la PRIMERA instalacion. Al reinstalar/actualizar, la
+    // config existente es la fuente de verdad (se edita con --setup, que guarda TODO:
+    // QrInputFocus/autoclick, reglas del guard, etc.) y el asistente del instalador no
+    // captura esos campos -> sobrescribir aqui los borraba.
+    if not FileExists(ConfigPath) then
+      SaveStringToFile(ConfigPath, BuildConfigJson(), False);
   end;
 end;
