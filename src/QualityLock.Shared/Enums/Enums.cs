@@ -28,7 +28,9 @@ public enum StationEventType
     BypassUsed,
     SafeModeEntered,
     HeartbeatSent,
-    ClientRecovered
+    ClientRecovered,
+    WindowAuthorized,
+    WindowClosed
 }
 
 public enum OverrideReasonType

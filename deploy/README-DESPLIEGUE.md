@@ -161,6 +161,8 @@ Ejecutalo como Administrador. El instalador pedira:
 - `AutoLockSeconds`
 - `RequireScan`
 - `ScanMaxAvgKeyMs`
+- `BlockWindowProcessName` (por defecto `inctest`)
+- `BlockWindowTitle` (por defecto `Error View`)
 
 Al terminar, el cliente queda instalado y con arranque automatico por
 `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`, valido para cualquier usuario al
@@ -208,6 +210,27 @@ activo de `usuarios_sistema`.
 | `ClientApiKey` | igual a `Auth:ClientApiKey` del servidor |
 | `BypassHmacSecret` | secreto para bypass firmados de contingencia |
 | `AdminPin` | opcional; **respaldo offline** del login de admin |
+| `AutoLockSeconds` | segundos de inactividad antes de bloquear |
+| `RequireScan` | `true` para exigir escaner QR; `false` permite tecleo directo |
+| `ScanMaxAvgKeyMs` | umbral de velocidad del escaner en ms por tecla |
+| `WindowAccessGuard` | reglas para cerrar ventanas externas por rol/usuario |
+| `QrInputFocus` | foco unico al iniciar sesion sobre el input QR de un programa externo |
+
+La regla incluida para AT-01 cierra la ventana configurada si el usuario actual no tiene
+rol `superadmin` o `Tecnico QA`. Por defecto vigila `Error View` del proceso
+`inctest.exe`; si el proveedor cambia el nombre del EXE o de la ventana, ajusta
+`ProcessName` y `WindowTitle` en `C:\ProgramData\QualityLock\appsettings.json`.
+Tambien puedes abrir el setup de estacion y usar **Ventanas protegidas > Detectar** para
+tomar el proceso/titulo desde las ventanas abiertas. Para permitir a un usuario concreto
+sin cambiar su rol, agregalo en `AllowedUsers`.
+
+Para enfocar el campo QR del programa externo al desbloquear, abre el setup de estacion y
+usa **Input QR externo**: detecta la ventana, presiona **Usar**, luego **Inputs**,
+selecciona el campo text y prueba con **Probar**. El foco solo se aplica una vez al
+iniciar sesion; no redirige los QR ni mantiene un timer robando foco. Si no aparecen
+inputs, usa **Punto**: el setup se minimiza, haces click sobre el input del programa
+externo, toma automaticamente esa ventana como destino y guarda una coordenada relativa
+para hacer click como respaldo.
 
 ---
 

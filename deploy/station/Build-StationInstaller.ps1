@@ -46,7 +46,9 @@ param(
     [string]$ApiBaseUrl = "http://192.168.1.10:5080/",
     [string]$AdminPin = "ISEMM2026",
     [int]$AutoLockSeconds = 300,
-    [int]$ScanMaxAvgKeyMs = 40
+    [int]$ScanMaxAvgKeyMs = 40,
+    [string]$GuardProcessName = "inctest",
+    [string]$GuardWindowTitle = "Error View"
 )
 $ErrorActionPreference = "Stop"
 
@@ -230,7 +232,9 @@ foreach ($define in @(
     @{ Name = "ApiBaseUrl"; Value = $ApiBaseUrl },
     @{ Name = "AdminPin"; Value = $AdminPin },
     @{ Name = "AutoLockSeconds"; Value = "$AutoLockSeconds" },
-    @{ Name = "ScanMaxAvgKeyMs"; Value = "$ScanMaxAvgKeyMs" }
+    @{ Name = "ScanMaxAvgKeyMs"; Value = "$ScanMaxAvgKeyMs" },
+    @{ Name = "GuardProcessName"; Value = $GuardProcessName },
+    @{ Name = "GuardWindowTitle"; Value = $GuardWindowTitle }
 )) {
     Assert-InnoDefineValue -Name $define.Name -Value $define.Value
 }
@@ -284,6 +288,8 @@ foreach ($targetRuntime in $runtimes) {
         "/DDefaultAdminPin=$AdminPin" `
         "/DDefaultAutoLockSeconds=$AutoLockSeconds" `
         "/DDefaultScanMaxAvgKeyMs=$ScanMaxAvgKeyMs" `
+        "/DDefaultGuardProcessName=$GuardProcessName" `
+        "/DDefaultGuardWindowTitle=$GuardWindowTitle" `
         $issPath
 
     if ($LASTEXITCODE -ne 0) {

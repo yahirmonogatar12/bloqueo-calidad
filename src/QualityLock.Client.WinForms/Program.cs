@@ -53,6 +53,8 @@ static class Program
         // para considerarlo escaner (default 40).
         var requireScan = !string.Equals(config["RequireScan"], "false", StringComparison.OrdinalIgnoreCase);
         var scanMaxAvgKeyMs = int.TryParse(config["ScanMaxAvgKeyMs"], out var ms) && ms > 0 ? ms : 40;
+        var windowGuardOptions = WindowAccessGuardOptions.FromConfiguration(config);
+        var qrInputFocusOptions = QrInputFocusOptions.FromConfiguration(config);
 
         var http = new HttpClient
         {
@@ -100,6 +102,8 @@ static class Program
                             : autoLockSeconds;
             requireScan = !string.Equals(config["RequireScan"], "false", StringComparison.OrdinalIgnoreCase);
             scanMaxAvgKeyMs = int.TryParse(config["ScanMaxAvgKeyMs"], out var ms2) && ms2 > 0 ? ms2 : scanMaxAvgKeyMs;
+            windowGuardOptions = WindowAccessGuardOptions.FromConfiguration(config);
+            qrInputFocusOptions = QrInputFocusOptions.FromConfiguration(config);
 
             // Rebuild HttpClient with potentially new base URL
             http = new HttpClient
@@ -131,7 +135,9 @@ static class Program
 
         var offlineSync = new OfflineSyncService(api, localState);
 
-        var lockForm = new LockForm(stationCode, api, localState, bypass, safeMode, adminPin, offlineSync, operatorCache, autoLockSeconds, scanMaxAvgKeyMs, requireScan);
+        var lockForm = new LockForm(stationCode, api, localState, bypass, safeMode, adminPin,
+            offlineSync, operatorCache, autoLockSeconds, scanMaxAvgKeyMs, requireScan,
+            windowGuardOptions, qrInputFocusOptions);
 
         // --diag: arranca en modo diagnostico de escaner (calibracion del umbral).
         if (args.Contains("--diag", StringComparer.OrdinalIgnoreCase))

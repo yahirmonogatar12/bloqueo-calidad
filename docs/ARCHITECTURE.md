@@ -135,6 +135,8 @@ Cliente:
 - `ClientApiKey`
 - `BypassHmacSecret`
 - `AdminPin`
+- `WindowAccessGuard` (reglas locales configurables desde setup para cerrar ventanas externas por rol/usuario)
+- `QrInputFocus` (foco unico al desbloquear sobre un input text externo, con fallback por click relativo)
 
 Paths locales definidos en `QualityLock.Shared.Constants.AppConstants`:
 

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Win32;
 using QualityLock.Client.WinForms.Services;
 using QualityLock.Shared.Constants;
@@ -20,14 +21,18 @@ public partial class LockForm : Form
     private readonly OperatorCacheService _operatorCache;
     private readonly int _autoLockSeconds;
     private readonly ScanSpeedDetector _scanDetector;
+    private readonly int _scanMaxAvgKeyMs;
     private readonly bool _requireScan;
     private readonly KeyboardHookService _keyHook;
+    private ExternalWindowGuardService _windowGuard;
+    private ExternalInputFocusService _qrInputFocus;
 
     // ── timers ────────────────────────────────────────────────
     private System.Windows.Forms.Timer _clockTimer = null!;
     private System.Windows.Forms.Timer _autoLockTimer = null!;
     private System.Windows.Forms.Timer _heartbeatTimer = null!;
     private System.Windows.Forms.Timer _guardTimer = null!;
+    private System.Windows.Forms.Timer? _windowGuardTimer;
 
     // ── state ─────────────────────────────────────────────────
     private bool _isLocked = true;
@@ -35,6 +40,8 @@ public partial class LockForm : Form
     // True mientras hay un dialogo modal abierto (ej. pedir contrasena): suspende el
     // guard de foco/topmost para que el operador pueda escribir en el dialogo.
     private bool _modalOpen = false;
+    // True mientras el overlay de autorización de ventana está abierto: evita abrir más de uno.
+    private bool _authOverlayOpen = false;
     // Modo diagnostico de escaner: muestra la velocidad medida tras cada escaneo,
     // para calibrar ScanMaxAvgKeyMs. Se activa desde el menu de la bandeja.
     private bool _scanDiagnostics = false;
@@ -42,6 +49,8 @@ public partial class LockForm : Form
     private bool _currentSessionOnline;
     private string? _currentBadge;
     private string? _currentDisplayName;
+    private string? _currentRole;
+    private DateTime _lastWindowBlockedNoticeAt = DateTime.MinValue;
     private DateTime _lastActivity = DateTime.UtcNow;
     private const string ClientVersion = "1.0.0";
 
@@ -60,7 +69,8 @@ public partial class LockForm : Form
     public LockForm(string stationCode, ApiClientService api, LocalStateService localState,
         BypassService bypass, SafeModeService safeMode, AdminPinService adminPin,
         OfflineSyncService offlineSync, OperatorCacheService operatorCache,
-        int autoLockSeconds, int scanMaxAvgKeyMs, bool requireScan)
+        int autoLockSeconds, int scanMaxAvgKeyMs, bool requireScan,
+        WindowAccessGuardOptions windowGuardOptions, QrInputFocusOptions qrInputFocusOptions)
     {
         _stationCode = stationCode;
         _api = api;
@@ -72,8 +82,14 @@ public partial class LockForm : Form
         _operatorCache = operatorCache;
         _autoLockSeconds = autoLockSeconds > 0 ? autoLockSeconds : AppConstants.AutoLockInactivitySeconds;
         _scanDetector = new ScanSpeedDetector(scanMaxAvgKeyMs);
+        _scanMaxAvgKeyMs = scanMaxAvgKeyMs;
         _requireScan = requireScan;
         _keyHook = new KeyboardHookService();
+        _windowGuard = new ExternalWindowGuardService(windowGuardOptions);
+        _windowGuard.WindowBlocked += WindowGuard_WindowBlocked;
+        _windowGuard.AuthorizationRequired += WindowGuard_AuthorizationRequired;
+        _windowGuard.AuthorizationClosed += WindowGuard_AuthorizationClosed;
+        _qrInputFocus = new ExternalInputFocusService(qrInputFocusOptions);
 
         BuildUI();
         SetupTimers();
@@ -251,6 +267,28 @@ public partial class LockForm : Form
         _guardTimer = new System.Windows.Forms.Timer { Interval = 300 };
         _guardTimer.Tick += GuardTimer_Tick;
         _guardTimer.Start();
+
+        ConfigureWindowGuardTimer();
+    }
+
+    private void ConfigureWindowGuardTimer()
+    {
+        _windowGuardTimer?.Stop();
+        _windowGuardTimer?.Dispose();
+        _windowGuardTimer = null;
+
+        if (!_windowGuard.Enabled)
+            return;
+
+        _windowGuardTimer = new System.Windows.Forms.Timer { Interval = _windowGuard.PollMilliseconds };
+        _windowGuardTimer.Tick += WindowGuardTimer_Tick;
+        _windowGuardTimer.Start();
+    }
+
+    private void WindowGuardTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_isLocked)
+            _windowGuard.Check(_currentBadge, _currentRole);
     }
 
     private void GuardTimer_Tick(object? sender, EventArgs e)
@@ -459,6 +497,49 @@ public partial class LockForm : Form
         // activa (para que NO quede 'En curso') y terminamos la app.
         if (setup.StopServiceRequested)
             await StopServiceAsync();
+
+        ReloadRuntimeConfiguration();
+    }
+
+    private void ReloadRuntimeConfiguration()
+    {
+        try
+        {
+            var config = BuildRuntimeConfiguration();
+
+            _windowGuard.WindowBlocked -= WindowGuard_WindowBlocked;
+            _windowGuard.AuthorizationRequired -= WindowGuard_AuthorizationRequired;
+            _windowGuard.AuthorizationClosed -= WindowGuard_AuthorizationClosed;
+            _windowGuard = new ExternalWindowGuardService(WindowAccessGuardOptions.FromConfiguration(config));
+            _windowGuard.WindowBlocked += WindowGuard_WindowBlocked;
+            _windowGuard.AuthorizationRequired += WindowGuard_AuthorizationRequired;
+            _windowGuard.AuthorizationClosed += WindowGuard_AuthorizationClosed;
+            ConfigureWindowGuardTimer();
+
+            _qrInputFocus = new ExternalInputFocusService(QrInputFocusOptions.FromConfiguration(config));
+        }
+        catch
+        {
+            _trayIcon.ShowBalloonTip(
+                3000,
+                "QualityLock",
+                "No se pudo recargar la configuración local. Reinicie la estación para aplicar cambios.",
+                ToolTipIcon.Warning);
+        }
+    }
+
+    private static IConfigurationRoot BuildRuntimeConfiguration()
+    {
+        var exeConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+
+        var builder = new ConfigurationBuilder();
+        if (File.Exists(exeConfigPath))
+            builder.AddJsonFile(exeConfigPath, optional: true);
+
+        if (File.Exists(AppConstants.ClientConfigFile))
+            builder.AddJsonFile(AppConstants.ClientConfigFile, optional: true);
+
+        return builder.Build();
     }
 
     /// <summary>
@@ -499,6 +580,62 @@ public partial class LockForm : Form
             ok ? $"Usuarios actualizados ({count} en caché)."
                : "No se pudo actualizar (sin conexión). Se conserva la caché anterior.",
             ok ? ToolTipIcon.Info : ToolTipIcon.Warning);
+    }
+
+    private void WindowGuard_WindowBlocked(WindowBlockedEvent evt)
+    {
+        if (DateTime.UtcNow - _lastWindowBlockedNoticeAt < TimeSpan.FromSeconds(5))
+            return;
+
+        _lastWindowBlockedNoticeAt = DateTime.UtcNow;
+        _trayIcon.ShowBalloonTip(
+            3000,
+            "QualityLock",
+            $"Ventana bloqueada por permisos: {evt.WindowTitle}",
+            ToolTipIcon.Warning);
+    }
+
+    /// <summary>
+    /// El guard ocultó una ventana restringida y pide autorización. Muestra el overlay
+    /// de escaneo; si un autorizador válido escanea, revela la ventana y audita el evento.
+    /// </summary>
+    private void WindowGuard_AuthorizationRequired(AuthorizationRequest req)
+    {
+        if (_authOverlayOpen) return;          // un overlay a la vez
+        _authOverlayOpen = true;
+        _modalOpen = true;                     // suspende el guard de foco mientras está abierto
+        try
+        {
+            var res = WindowAuthorizationOverlay.RequestAuthorization(
+                req, _api, _localState, _stationCode, _scanMaxAvgKeyMs);
+
+            if (res.Authorized)
+            {
+                _windowGuard.MarkAuthorized(req.Handle, req, res.BadgeCode, res.DisplayName, res.Role);
+                EnqueueOfflineEvent(StationEventType.WindowAuthorized, res.BadgeCode, null,
+                    Guid.NewGuid().ToString("N"),
+                    new { req.ProcessName, req.WindowTitle, res.DisplayName, res.Role, Rule = req.Rule.Name });
+            }
+            else
+            {
+                _windowGuard.CancelAuthorization(req.Handle);
+            }
+        }
+        finally
+        {
+            _authOverlayOpen = false;
+            _modalOpen = false;
+        }
+    }
+
+    /// <summary>
+    /// Una ventana autorizada se cerró: registra el tiempo que estuvo abierta para auditoría.
+    /// </summary>
+    private void WindowGuard_AuthorizationClosed(AuthorizationClosedEvent evt)
+    {
+        EnqueueOfflineEvent(StationEventType.WindowClosed, evt.BadgeCode, null,
+            Guid.NewGuid().ToString("N"),
+            new { evt.ProcessName, evt.WindowTitle, evt.DisplayName, evt.Role, Rule = evt.RuleName, evt.OpenSeconds });
     }
 
     // ─────────────────────────────────────────────────────────
@@ -559,6 +696,7 @@ public partial class LockForm : Form
         _heartbeatTimer.Dispose();
         _autoLockTimer.Dispose();
         _guardTimer.Dispose();
+        _windowGuardTimer?.Dispose();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         if (_sessionBadge is not null) { _sessionBadge.Dispose(); _sessionBadge = null; }
@@ -688,7 +826,7 @@ public partial class LockForm : Form
         }
 
         // Si la estacion exige escaner, el tecleo manual solo lo permiten los roles
-        // configurados (por defecto superadmin, admin, Tecnico QA).
+        // configurados (por defecto superadmin y Tecnico QA).
         if (adminOnly && !login.CanUnlockManually)
         {
             SetStatus("Use el escáner QR. El acceso manual está restringido a roles autorizados.", Color.OrangeRed);
@@ -773,6 +911,7 @@ public partial class LockForm : Form
         _currentSessionOnline = isOnline;
         _currentBadge = badgeCode;
         _currentDisplayName = displayName;
+        _currentRole = role;
 
         // Start session
         if (isOnline)
@@ -816,6 +955,22 @@ public partial class LockForm : Form
         _autoLockTimer.Stop();
         _autoLockTimer.Start();
 
+        if (_qrInputFocus.Enabled)
+        {
+            AppendQrInputFocusLog($"Unlock '{displayName}' starting QR focus. {_qrInputFocus.DiagnosticDescription}");
+            _ = FocusQrInputAfterUnlockThenShowSessionAsync(displayName, role);
+            return;
+        }
+
+        AppendQrInputFocusLog($"Unlock '{displayName}' skipped QR focus. {_qrInputFocus.DiagnosticDescription}");
+        ShowSessionBadge(displayName, role);
+    }
+
+    private void ShowSessionBadge(string displayName, string? role)
+    {
+        if (IsDisposed)
+            return;
+
         // ── Indicador persistente de sesion (usuario + rol, movible) ──
         if (_sessionBadge is null)
         {
@@ -824,6 +979,44 @@ public partial class LockForm : Form
             _sessionBadge.LockRequested += () => ShowLockScreen(LockReason.Manual);
         }
         _sessionBadge.ShowSession(displayName, role);
+    }
+
+    private async Task FocusQrInputAfterUnlockThenShowSessionAsync(string displayName, string? role)
+    {
+        try
+        {
+            var ok = await _qrInputFocus.TryFocusAfterUnlockAsync(AppendQrInputFocusLog);
+            AppendQrInputFocusLog($"Unlock '{displayName}' QR focus completed: {ok}.");
+        }
+        catch (Exception ex)
+        {
+            AppendQrInputFocusLog($"Unlock '{displayName}' QR focus error: {ex}");
+            // El foco externo es best-effort; nunca debe bloquear la estacion.
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                if (InvokeRequired)
+                    BeginInvoke(() => ShowSessionBadge(displayName, role));
+                else
+                    ShowSessionBadge(displayName, role);
+            }
+        }
+    }
+
+    private static void AppendQrInputFocusLog(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppConstants.LogsFolder);
+            var path = Path.Combine(AppConstants.LogsFolder, "qr-input-focus.log");
+            File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Diagnostico best-effort.
+        }
     }
 
     /// <summary>Re-display the fullscreen lock screen.</summary>
@@ -855,6 +1048,7 @@ public partial class LockForm : Form
             _currentSessionId = null;
             _currentBadge = null;
             _currentDisplayName = null;
+            _currentRole = null;
         }
 
         _isLocked = true;
@@ -947,6 +1141,7 @@ public partial class LockForm : Form
         _currentSessionId = null;
         _currentBadge = null;
         _currentSessionOnline = false;
+        _currentRole = null;
 
         UnlockUi("Bypass de contingencia", $"Motivo: {reason}");
     }

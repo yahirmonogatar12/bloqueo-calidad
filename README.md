@@ -185,6 +185,18 @@ En desarrollo, si ese archivo no existe, usa como fallback
   antes de que la estacion se bloquee sola. Por defecto `300` (5 min). Si el operador
   esta trabajando, no se bloquea. El indicador de sesion tambien tiene un boton
   **"Cerrar sesion"** para bloquear manualmente.
+- `WindowAccessGuard`: reglas locales para bloquear ventanas externas segun el usuario
+  actual. Por defecto cierra `Error View` del proceso `inctest.exe` salvo para roles
+  `superadmin` o `Tecnico QA`. El proceso y el titulo de ventana son configurables;
+  tambien se pueden permitir usuarios exactos con `AllowedUsers`. El panel de setup de
+  estacion incluye una seccion **Ventanas protegidas** para detectar ventanas abiertas y
+  guardar varias reglas sin editar el JSON a mano.
+- `QrInputFocus`: foco unico al iniciar sesion sobre un input text de un programa
+  externo. Se configura desde **Input QR externo** en el setup: detecta la ventana,
+  lista controles tipo `Edit`/`RichEdit`/`TextBox` y prueba el foco antes de guardar.
+  Si el input no se expone como control de Windows, se puede capturar un **Punto** de
+  respaldo haciendo click sobre el input externo: toma automaticamente la ventana real
+  bajo el cursor y guarda una coordenada relativa donde se hara click al desbloquear.
 
 Si `StationCode` esta vacio o se ejecuta con `--setup`, abre el panel de configuracion
 de estacion y guarda los cambios en `C:\ProgramData\QualityLock\appsettings.json`.

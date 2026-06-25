@@ -117,13 +117,47 @@ $config = [ordered]@{
     AutoLockSeconds  = $AutoLockSeconds
     RequireScan      = $RequireScan
     ScanMaxAvgKeyMs  = $ScanMaxAvgKeyMs
+    WindowAccessGuard = [ordered]@{
+        Enabled = $true
+        PollMilliseconds = 500
+        Rules = @(
+            [ordered]@{
+                Name = "AT-01 Error View"
+                ProcessName = "inctest"
+                WindowTitle = "Error View"
+                MatchMode = "Exact"
+                BlockAction = "PromptAuthorization"
+                AllowedRoles = @("superadmin", "Tecnico QA")
+                AllowedUsers = @()
+            }
+        )
+    }
+    QrInputFocus = [ordered]@{
+        Enabled = $false
+        DelayMilliseconds = 500
+        RetryCount = 3
+        ProcessName = ""
+        WindowTitle = ""
+        MatchMode = "Exact"
+        Input = [ordered]@{
+            AutomationId = ""
+            Name = ""
+            ClassName = ""
+            ControlType = ""
+            ControlIndex = 0
+            NativeWindowHandle = 0
+            UseFallbackClick = $false
+            FallbackClickX = -1
+            FallbackClickY = -1
+        }
+    }
 }
 $programDataDir = Join-Path $env:ProgramData "QualityLock"
 New-Item -ItemType Directory -Force -Path $programDataDir | Out-Null
 & icacls $programDataDir /grant "*S-1-5-32-545:(OI)(CI)M" | Out-Null
 
 $cfgPath = Join-Path $programDataDir "appsettings.json"
-$config | ConvertTo-Json | Set-Content -Path $cfgPath -Encoding UTF8
+$config | ConvertTo-Json -Depth 8 | Set-Content -Path $cfgPath -Encoding UTF8
 Write-Host "Config escrita: $cfgPath (StationCode=$StationCode, Linea=$Linea)" -ForegroundColor Green
 
 $installedExe = Join-Path $installDirPath $exeName

@@ -125,7 +125,6 @@ public class SessionBadgeForm : Form
 
         if (!Visible) Show();
         TopMost = true;
-        BringToFront();
     }
 
     /// <summary>Detiene el cronómetro (la sesión terminó / el indicador se oculta).</summary>
@@ -139,6 +138,19 @@ public class SessionBadgeForm : Form
     {
         if (IsKeyboardCloseKey(keyData)) return true;
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    protected override bool ShowWithoutActivation => true;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            const int WS_EX_NOACTIVATE = 0x08000000;
+            var cp = base.CreateParams;
+            cp.ExStyle |= WS_EX_NOACTIVATE;
+            return cp;
+        }
     }
 
     protected override bool ProcessDialogKey(Keys keyData)

@@ -1,5 +1,4 @@
 using QualityLock.Application.Configuration;
-using QualityLock.Application.Exceptions;
 using QualityLock.Application.Interfaces;
 using QualityLock.Domain.Entities;
 using QualityLock.Shared.DTOs;
@@ -26,8 +25,12 @@ public class EventService(
 
         foreach (var req in requests)
         {
-            var station = await stationRepo.GetByCodeAndLineAsync(req.StationCode, req.Line, ct)
-                ?? throw new NotFoundException($"Station '{req.StationCode}' not found.");
+            // Auditoría best-effort: un evento de una estación inexistente (ej. estación
+            // de prueba mal configurada) NO debe tumbar el batch entero y dejar la cola
+            // del cliente atascada para siempre. Se omite y se sigue con los demás.
+            var station = await stationRepo.GetByCodeAndLineAsync(req.StationCode, req.Line, ct);
+            if (station is null)
+                continue;
 
             // El BadgeCode de un evento (offline u online) es el username del MES. Lo
             // puenteamos a operators_QA para atribuir el evento; si el usuario ya no

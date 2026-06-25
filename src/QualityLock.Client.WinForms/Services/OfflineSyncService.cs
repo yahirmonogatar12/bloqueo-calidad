@@ -40,7 +40,15 @@ public class OfflineSyncService(ApiClientService api, LocalStateService localSta
                 try
                 {
                     var evt = JsonSerializer.Deserialize<StationEventRequest>(line, JsonOpts);
-                    if (evt is not null) events.Add(evt);
+                    // Descartar líneas que no son eventos válidos (p.ej. sesiones legacy
+                    // escritas por error en esta cola): sin Source/CorrelationId el server
+                    // las rechaza con 400 y bloquearía TODO el batch para siempre.
+                    if (evt is not null &&
+                        !string.IsNullOrWhiteSpace(evt.Source) &&
+                        !string.IsNullOrWhiteSpace(evt.CorrelationId))
+                    {
+                        events.Add(evt);
+                    }
                 }
                 catch (JsonException)
                 {

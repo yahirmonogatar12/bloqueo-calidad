@@ -37,6 +37,12 @@
 #ifndef DefaultScanMaxAvgKeyMs
 #define DefaultScanMaxAvgKeyMs "40"
 #endif
+#ifndef DefaultGuardProcessName
+#define DefaultGuardProcessName "inctest"
+#endif
+#ifndef DefaultGuardWindowTitle
+#define DefaultGuardWindowTitle "Error View"
+#endif
 
 [Setup]
 AppId={{B0A04A5C-0E87-4C94-99C8-1F5154A8C7A5}
@@ -85,6 +91,7 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 [Code]
 var
   ConfigPage: TInputQueryWizardPage;
+  GuardPage: TInputQueryWizardPage;
   ScanPage: TInputOptionWizardPage;
 
 function JsonEscape(Value: string): string;
@@ -131,7 +138,41 @@ begin
     '  "ClientApiKey": "' + JsonEscape(ConfigPage.Values[3]) + '",' + #13#10 +
     '  "AutoLockSeconds": ' + Trim(ConfigPage.Values[6]) + ',' + #13#10 +
     '  "RequireScan": ' + RequireScanValue + ',' + #13#10 +
-    '  "ScanMaxAvgKeyMs": ' + Trim(ConfigPage.Values[7]) + #13#10 +
+    '  "ScanMaxAvgKeyMs": ' + Trim(ConfigPage.Values[7]) + ',' + #13#10 +
+    '  "WindowAccessGuard": {' + #13#10 +
+    '    "Enabled": true,' + #13#10 +
+    '    "PollMilliseconds": 500,' + #13#10 +
+    '    "Rules": [' + #13#10 +
+    '      {' + #13#10 +
+    '        "Name": "Ventana protegida ' + JsonEscape(Trim(GuardPage.Values[1])) + '",' + #13#10 +
+    '        "ProcessName": "' + JsonEscape(Trim(GuardPage.Values[0])) + '",' + #13#10 +
+    '        "WindowTitle": "' + JsonEscape(Trim(GuardPage.Values[1])) + '",' + #13#10 +
+    '        "MatchMode": "Exact",' + #13#10 +
+    '        "BlockAction": "PromptAuthorization",' + #13#10 +
+    '        "AllowedRoles": [ "superadmin", "Tecnico QA" ],' + #13#10 +
+    '        "AllowedUsers": []' + #13#10 +
+    '      }' + #13#10 +
+    '    ]' + #13#10 +
+    '  },' + #13#10 +
+    '  "QrInputFocus": {' + #13#10 +
+    '    "Enabled": false,' + #13#10 +
+    '    "DelayMilliseconds": 500,' + #13#10 +
+    '    "RetryCount": 3,' + #13#10 +
+    '    "ProcessName": "",' + #13#10 +
+    '    "WindowTitle": "",' + #13#10 +
+    '    "MatchMode": "Exact",' + #13#10 +
+    '    "Input": {' + #13#10 +
+    '      "AutomationId": "",' + #13#10 +
+    '      "Name": "",' + #13#10 +
+    '      "ClassName": "",' + #13#10 +
+    '      "ControlType": "",' + #13#10 +
+    '      "ControlIndex": 0,' + #13#10 +
+    '      "NativeWindowHandle": 0,' + #13#10 +
+    '      "UseFallbackClick": false,' + #13#10 +
+    '      "FallbackClickX": -1,' + #13#10 +
+    '      "FallbackClickY": -1' + #13#10 +
+    '    }' + #13#10 +
+    '  }' + #13#10 +
     '}' + #13#10;
 end;
 
@@ -161,8 +202,20 @@ begin
   ConfigPage.Values[6] := '{#DefaultAutoLockSeconds}';
   ConfigPage.Values[7] := '{#DefaultScanMaxAvgKeyMs}';
 
-  ScanPage := CreateInputOptionPage(
+  GuardPage := CreateInputQueryPage(
     ConfigPage.ID,
+    'Ventana protegida',
+    'Bloqueo de ventana externa por rol',
+    'QualityLock cerrara esta ventana si el usuario actual no es superadmin o Tecnico QA.');
+
+  GuardPage.Add('BlockWindowProcessName:', False);
+  GuardPage.Add('BlockWindowTitle:', False);
+
+  GuardPage.Values[0] := '{#DefaultGuardProcessName}';
+  GuardPage.Values[1] := '{#DefaultGuardWindowTitle}';
+
+  ScanPage := CreateInputOptionPage(
+    GuardPage.ID,
     'Entrada por escaner',
     'Configure la validacion de escaneo.',
     'QualityLock puede rechazar tecleo manual y aceptar solo entrada rapida de scanner.',
@@ -196,6 +249,23 @@ begin
     begin
       MsgBox('ScanMaxAvgKeyMs debe ser un entero mayor a cero.', mbError, MB_OK);
       Result := False;
+      exit;
+    end;
+  end;
+
+  if CurPageID = GuardPage.ID then
+  begin
+    Result := Trim(GuardPage.Values[0]) <> '';
+    if not Result then
+    begin
+      MsgBox('BlockWindowProcessName es obligatorio.', mbError, MB_OK);
+      exit;
+    end;
+
+    Result := Trim(GuardPage.Values[1]) <> '';
+    if not Result then
+    begin
+      MsgBox('BlockWindowTitle es obligatorio.', mbError, MB_OK);
       exit;
     end;
   end;
