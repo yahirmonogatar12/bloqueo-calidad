@@ -53,13 +53,15 @@ Los scripts actuales crean tablas con sufijo `_QA` y estan orientados a una base
 mysql -u <usuario> -p <base_datos> < database/mysql/001_init.sql
 mysql -u <usuario> -p <base_datos> < database/mysql/002_seed.sql
 mysql -u <usuario> -p <base_datos> < database/mysql/003_unique_open_session.sql
+mysql -u <usuario> -p <base_datos> < database/mysql/004_historial_view.sql
+mysql -u <usuario> -p <base_datos> < database/mysql/005_station_unique_code_line.sql
 ```
 
-La migracion `003` agrega un indice unico que refuerza, a nivel de base de datos,
-la regla de **una sola sesion abierta por estacion** (cierra la condicion de carrera
-donde dos peticiones concurrentes podian abrir sesiones duplicadas).
+- La migración `003` agrega la columna autogenerada `open_station_id` y un índice único que refuerza a nivel físico la regla de **una sola sesión abierta por estación** (condición de carrera resuelta).
+- La migración `004` crea la vista unificada de auditoría `historial_estaciones_QA`.
+- La migración `005` permite que el mismo código de estación (`station_code`) exista en líneas de producción diferentes, haciendo única la combinación `(station_code, host_name)`.
 
-Tablas principales:
+Tablas y vistas principales:
 
 - `usuarios_sistema` — **fuente de verdad de usuarios** (compartida con el resto del MES; solo lectura desde QualityLock)
 - `usuario_roles` + `roles` — **roles del usuario** (solo lectura); su `nivel` decide quién es admin
@@ -70,6 +72,7 @@ Tablas principales:
 - `station_events_QA`
 - `admin_overrides_QA`
 - `client_heartbeats_QA`
+- `historial_estaciones_QA` — **vista unificada de historial** (combina sesiones ordinarias de `station_sessions_QA` con ventanas de ajuste de `station_events_QA`)
 
 ### Usuarios y autenticacion de personas
 
