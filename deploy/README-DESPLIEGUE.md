@@ -164,10 +164,11 @@ Ejecutalo como Administrador. El instalador pedira:
 - `BlockWindowProcessName` (por defecto `inctest`)
 - `BlockWindowTitle` (por defecto `Error View`)
 
-Al terminar, el cliente queda instalado y con arranque automatico por
-`HKLM\Software\Microsoft\Windows\CurrentVersion\Run`, valido para cualquier usuario al
-iniciar sesion. El instalador tambien elimina la tarea programada heredada
-`QualityLockClient`, si existe.
+Al terminar, el cliente queda instalado con la tarea programada `QualityLockClient`.
+La tarea se dispara al iniciar sesion y usa `RunLevel Highest`, de modo que QualityLock
+puede cerrar ventanas elevadas como `Error View`. El instalador elimina las entradas
+heredadas de `HKCU/HKLM\...\Run` para impedir que una instancia sin elevacion tome el
+mutex antes que la tarea programada.
 
 Para probarlo sin cerrar sesion:
 

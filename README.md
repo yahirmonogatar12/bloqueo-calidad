@@ -14,6 +14,7 @@ Documentacion extendida:
 
 - [Arquitectura y operacion](docs/ARCHITECTURE.md)
 - [Revision tecnica del proyecto](docs/PROJECT_REVIEW.md)
+- [Guía de despliegue y empaquetado](deploy/README-DESPLIEGUE.md)
 - [Plan original](PLAN.md)
 
 ## Estructura
@@ -188,12 +189,11 @@ En desarrollo, si ese archivo no existe, usa como fallback
   antes de que la estacion se bloquee sola. Por defecto `300` (5 min). Si el operador
   esta trabajando, no se bloquea. El indicador de sesion tambien tiene un boton
   **"Cerrar sesion"** para bloquear manualmente.
-- `WindowAccessGuard`: reglas locales para bloquear ventanas externas segun el usuario
-  actual. Por defecto cierra `Error View` del proceso `inctest.exe` salvo para roles
-  `superadmin` o `Tecnico QA`. El proceso y el titulo de ventana son configurables;
-  tambien se pueden permitir usuarios exactos con `AllowedUsers`. El panel de setup de
-  estacion incluye una seccion **Ventanas protegidas** para detectar ventanas abiertas y
-  guardar varias reglas sin editar el JSON a mano.
+- `WindowAccessGuard`: reglas locales para controlar y auditar ventanas externas según el usuario actual. Soporta tres acciones (`BlockAction`):
+  - `Close`: Cierra inmediatamente la ventana externa especificada.
+  - `PromptAuthorization`: Muestra una pantalla de bloqueo parcial encima de la ventana externa pidiendo credenciales autorizadas para continuar.
+  - `TrackOnly`: No bloquea ni interrumpe al operador, sino que cronometra y registra cuánto tiempo estuvo abierta la ventana. Al cerrarse, se guarda un evento de tipo `WindowClosed` con la propiedad `OpenSeconds`. Estos eventos se unifican como periodos de `'Ajuste'` en la vista del historial `historial_estaciones_QA`.
+  Por defecto, cierra `Error View` del proceso `inctest.exe` salvo para roles `superadmin` o `Tecnico QA`. El panel de setup de la estación incluye una sección **Ventanas protegidas** para detectar y guardar estas reglas sin editar el JSON a mano.
 - `QrInputFocus`: foco unico al iniciar sesion sobre un input text de un programa
   externo. Se configura desde **Input QR externo** en el setup: detecta la ventana,
   lista controles tipo `Edit`/`RichEdit`/`TextBox` y prueba el foco antes de guardar.

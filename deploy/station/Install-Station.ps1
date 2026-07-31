@@ -7,8 +7,8 @@
     - Copia los binarios publicados del cliente a la carpeta destino.
     - Escribe appsettings.json con el StationCode, Linea, ApiBaseUrl, ClientApiKey y
       secreto de bypass de ESTA estacion.
-    - Registra el arranque automatico en HKLM Run para cualquier usuario.
-    - Elimina la tarea programada heredada QualityLockClient, si existe.
+    - Registra una tarea programada interactiva con RunLevel Highest.
+    - Elimina las claves Run heredadas para evitar una instancia sin elevacion.
     El cliente es una app de escritorio fullscreen: corre en la sesion interactiva del
     usuario, NO como servicio.
 
@@ -36,8 +36,8 @@
     Generate-Bypass.ps1).
 
 .PARAMETER Autostart
-    Mecanismo de arranque: 'MachineRun' (HKLM Run, cualquier usuario) o 'None'.
-    El valor legacy 'Run' se acepta como alias de 'MachineRun'. Por defecto 'MachineRun'.
+    Mecanismo de arranque: 'ScheduledTask' (elevado) o 'None'.
+    Los valores legacy 'MachineRun' y 'Run' se migran a la tarea elevada.
 
 .EXAMPLE
     .\Install-Station.ps1 -SourceDir .\publish\Client -InstallDir C:\QualityLock\Client `
@@ -56,7 +56,7 @@ param(
     [string]$AdminPin = "ISEMM2026",
     [bool]$RequireScan = $true,
     [int]$ScanMaxAvgKeyMs = 40,
-    [ValidateSet('MachineRun','Run','None')] [string]$Autostart = 'MachineRun'
+    [ValidateSet('ScheduledTask','MachineRun','Run','None')] [string]$Autostart = 'ScheduledTask'
 )
 $ErrorActionPreference = "Stop"
 
@@ -163,23 +163,25 @@ Write-Host "Config escrita: $cfgPath (StationCode=$StationCode, Linea=$Linea)" -
 $installedExe = Join-Path $installDirPath $exeName
 
 # --- Arranque automatico ---
-Get-ScheduledTask -TaskName "QualityLockClient" -ErrorAction SilentlyContinue |
-    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
+$autostartScript = Join-Path $PSScriptRoot "Register-StationAutostart.ps1"
+if (-not (Test-Path -LiteralPath $autostartScript)) {
+    throw "No se encontro el script de autostart: $autostartScript"
+}
 
 switch ($Autostart) {
+    'ScheduledTask' {
+        & $autostartScript -ExecutablePath $installedExe
+    }
     'MachineRun' {
-        $runKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
-        New-ItemProperty -Path $runKey -Name "QualityLockClient" -Value "`"$installedExe`"" -PropertyType String -Force | Out-Null
-        Write-Host "Autostart registrado en HKLM Run para cualquier usuario." -ForegroundColor Green
+        Write-Warning "MachineRun es heredado; se migrara a una tarea elevada."
+        & $autostartScript -ExecutablePath $installedExe
     }
     'Run' {
-        $runKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
-        New-ItemProperty -Path $runKey -Name "QualityLockClient" -Value "`"$installedExe`"" -PropertyType String -Force | Out-Null
-        Write-Host "Autostart registrado en HKLM Run para cualquier usuario." -ForegroundColor Green
+        Write-Warning "Run es heredado; se migrara a una tarea elevada."
+        & $autostartScript -ExecutablePath $installedExe
     }
     'None' {
-        Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
+        & $autostartScript -Unregister
         Write-Host "Autostart no registrado." -ForegroundColor Yellow
     }
 }

@@ -42,12 +42,12 @@ public sealed class ExternalWindowGuardService
     }
 
     /// <summary>Autorización cancelada: cierra la ventana restringida (no se autorizó).</summary>
-    public void CancelAuthorization(IntPtr hwnd)
+    public WindowCloseResult CancelAuthorization(IntPtr hwnd)
     {
         GetWindowThreadProcessId(hwnd, out var pid);
         // No conocemos la regla aquí; quitamos cualquier pendiente de este proceso.
         _pending.RemoveWhere(k => k.ProcessId == pid);
-        Apply(WindowBlockAction.Close, hwnd);
+        return TryCloseWindow(hwnd);
     }
 
     public static IReadOnlyList<OpenWindowSnapshot> GetOpenWindows()
@@ -157,9 +157,25 @@ public sealed class ExternalWindowGuardService
                 ShowWindow(hwnd, SW_MINIMIZE);
                 break;
             default:
-                PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                _ = TryCloseWindow(hwnd);
                 break;
         }
+    }
+
+    private static WindowCloseResult TryCloseWindow(IntPtr hwnd)
+    {
+        // Una ventana que ya desapareció cuenta como cerrada correctamente.
+        if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
+            return new WindowCloseResult(true, 0);
+
+        if (PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero))
+            return new WindowCloseResult(true, 0);
+
+        var error = Marshal.GetLastWin32Error();
+        // La ventana puede haberse cerrado entre IsWindow y PostMessage.
+        return !IsWindow(hwnd)
+            ? new WindowCloseResult(true, 0)
+            : new WindowCloseResult(false, error);
     }
 
     private static IEnumerable<ExternalWindowInfo> EnumerateTopLevelWindows()
@@ -227,6 +243,9 @@ public sealed class ExternalWindowGuardService
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
@@ -236,7 +255,7 @@ public sealed class ExternalWindowGuardService
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -252,6 +271,8 @@ public sealed record WindowBlockedEvent(
     WindowBlockAction Action);
 
 public sealed record OpenWindowSnapshot(string ProcessName, string WindowTitle);
+
+public readonly record struct WindowCloseResult(bool Succeeded, int Win32Error);
 
 public sealed record AuthorizationRequest(
     WindowAccessRule Rule,

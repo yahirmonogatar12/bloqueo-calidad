@@ -632,7 +632,20 @@ public partial class LockForm : Form
             }
             else
             {
-                _windowGuard.CancelAuthorization(req.Handle);
+                var closeResult = _windowGuard.CancelAuthorization(req.Handle);
+                if (!closeResult.Succeeded)
+                {
+                    AppendWindowGuardLog(
+                        $"No se pudo cerrar '{req.ProcessName}' / '{req.WindowTitle}'. " +
+                        $"Win32Error={closeResult.Win32Error}. Elevated={IsRunningAsAdministrator()}.");
+                    MessageBox.Show(
+                        "No se pudo cerrar la ventana protegida.\n\n" +
+                        $"Error de Windows: {closeResult.Win32Error}\n" +
+                        "Verifique que QualityLock se haya iniciado como administrador.",
+                        "QualityLock — Error de protección",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
             }
         }
         finally
@@ -649,7 +662,7 @@ public partial class LockForm : Form
     {
         EnqueueOfflineEvent(StationEventType.WindowClosed, evt.BadgeCode ?? "N/A", null,
             Guid.NewGuid().ToString("N"),
-            new { evt.ProcessName, evt.WindowTitle, evt.DisplayName, evt.Role, Rule = evt.RuleName, evt.OpenSeconds });
+            new { evt.BadgeCode, evt.ProcessName, evt.WindowTitle, evt.DisplayName, evt.Role, Rule = evt.RuleName, evt.OpenSeconds });
     }
 
     // ─────────────────────────────────────────────────────────
@@ -1042,6 +1055,27 @@ public partial class LockForm : Form
         {
             // Diagnostico best-effort.
         }
+    }
+
+    private static void AppendWindowGuardLog(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppConstants.LogsFolder);
+            var path = Path.Combine(AppConstants.LogsFolder, "window-guard.log");
+            File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Diagnóstico best-effort.
+        }
+    }
+
+    private static bool IsRunningAsAdministrator()
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        return new System.Security.Principal.WindowsPrincipal(identity)
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
     }
 
     /// <summary>Re-display the fullscreen lock screen.</summary>

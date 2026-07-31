@@ -72,21 +72,19 @@ Name: "{commonappdata}\QualityLock\logs"; Permissions: users-modify
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "Register-StationAutostart.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\QualityLock"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\Configurar QualityLock"; Filename: "{app}\{#AppExeName}"; Parameters: "--setup"
 
-[Registry]
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "QualityLockClient"; ValueData: """{app}\{#AppExeName}"""; Flags: uninsdeletevalue
-
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Get-ScheduledTask -TaskName 'QualityLockClient' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue"""; Flags: runhidden waituntilterminated
-Filename: "{app}\{#AppExeName}"; Description: "Iniciar QualityLock ahora"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Register-StationAutostart.ps1"" -ExecutablePath ""{app}\{#AppExeName}"""; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Start-ScheduledTask -TaskName 'QualityLockClient'"""; Description: "Iniciar QualityLock ahora"; Flags: runhidden postinstall skipifsilent unchecked
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /IM {#AppExeName} /F"; Flags: runhidden waituntilterminated; RunOnceId: "StopQualityLockClient"
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Get-ScheduledTask -TaskName 'QualityLockClient' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveQualityLockClientTask"
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Register-StationAutostart.ps1"" -Unregister"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveQualityLockClientTask"
 
 [Code]
 var

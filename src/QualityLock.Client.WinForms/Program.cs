@@ -3,6 +3,7 @@ using Microsoft.Win32;
 using QualityLock.Client.WinForms.Forms;
 using QualityLock.Client.WinForms.Services;
 using QualityLock.Shared.Constants;
+using System.Security.Principal;
 
 namespace QualityLock.Client.WinForms;
 
@@ -13,10 +14,24 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        ApplicationConfiguration.Initialize();
+
+        if (!IsRunningAsAdministrator())
+        {
+            WriteStartupLog("Inicio rechazado: el proceso no tiene permisos de administrador.");
+            MessageBox.Show(
+                "QualityLock debe ejecutarse con permisos de administrador.\n\n" +
+                "Reinstale la estación para reparar la tarea de inicio automático.",
+                "QualityLock — Permisos insuficientes",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+            return;
+        }
+
+        WriteStartupLog("Inicio elevado confirmado.");
+
         using var instanceMutex = new Mutex(true, InstanceMutexName, out var createdNew);
         if (!createdNew) return;
-
-        ApplicationConfiguration.Initialize();
 
         Directory.CreateDirectory(AppConstants.LocalDataPath);
         Directory.CreateDirectory(AppConstants.LogsFolder);
@@ -145,6 +160,29 @@ static class Program
             lockForm.Shown += (_, _) => lockForm.EnableScanDiagnostics();
 
         Application.Run(lockForm);
+    }
+
+    private static bool IsRunningAsAdministrator()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return new WindowsPrincipal(identity)
+            .IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    private static void WriteStartupLog(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppConstants.LogsFolder);
+            var path = Path.Combine(AppConstants.LogsFolder, "startup.log");
+            File.AppendAllText(
+                path,
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Diagnóstico best-effort: nunca impedir el arranque por un fallo de log.
+        }
     }
 
     // 0 = desactivado (no auto-bloquea). Valor presente >=0 se respeta tal cual.
