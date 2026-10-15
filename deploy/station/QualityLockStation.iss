@@ -13,6 +13,21 @@
 #ifndef AppVersion
 #define AppVersion "1.0.0"
 #endif
+; AppArch decide la arquitectura; AppSuffix solo el nombre del EXE de salida, para
+; poder distinguir el paquete de Windows 7 (win7-x64) del de Win10/11 (win-x64).
+#ifndef AppSuffix
+#define AppSuffix AppArch
+#endif
+; Los dos paquetes solo se distinguen por un "7" en el nombre, y Inno valida
+; arquitectura pero NO version de SO: sin esto, el paquete .NET 9 se instala sin
+; quejarse en Windows 7 y la app nunca abre. 10.0.14393 = Win10 1607, piso de .NET 9.
+#ifndef MinWindows
+  #if Pos("win7", LowerCase(AppSuffix)) > 0
+    #define MinWindows "6.1sp1"
+  #else
+    #define MinWindows "10.0.14393"
+  #endif
+#endif
 #ifndef DefaultStationCode
 #define DefaultStationCode "ICT-01"
 #endif
@@ -53,12 +68,13 @@ DefaultDirName={autopf}\QualityLock\Client
 DefaultGroupName=QualityLock
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=QualityLockStation-{#AppArch}
+OutputBaseFilename=QualityLockStation-{#AppSuffix}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 UninstallDisplayName={#AppName}
+MinVersion={#MinWindows}
 #if AppArch == "win-x64"
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -79,8 +95,11 @@ Name: "{group}\QualityLock"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\Configurar QualityLock"; Filename: "{app}\{#AppExeName}"; Parameters: "--setup"
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Register-StationAutostart.ps1"" -ExecutablePath ""{app}\{#AppExeName}"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Start-ScheduledTask -TaskName 'QualityLockClient'"""; Description: "Iniciar QualityLock ahora"; Flags: runhidden postinstall skipifsilent unchecked
+; El registro del autostart NO va aqui: [Run] ignora el codigo de salida, asi que un
+; fallo dejaba la estacion instalada y sin arrancar nunca. Se hace en CurStepChanged.
+; schtasks.exe en vez de Start-ScheduledTask: esa cmdlet no existe en Windows 7.
+; unchecked a proposito: primero se configura la estacion (--setup), luego se arranca.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""QualityLockClient"""; Description: "Iniciar QualityLock ahora"; Flags: runhidden postinstall skipifsilent unchecked
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /IM {#AppExeName} /F"; Flags: runhidden waituntilterminated; RunOnceId: "StopQualityLockClient"
@@ -232,6 +251,16 @@ begin
     if not RequiredValue(0, 'StationCode') then begin Result := False; exit; end;
     if not RequiredValue(1, 'Linea') then begin Result := False; exit; end;
     if not RequiredValue(2, 'ApiBaseUrl') then begin Result := False; exit; end;
+
+    // Sin esquema, la app no puede construir el BaseAddress y no arranca.
+    if (Pos('http://', Lowercase(Trim(ConfigPage.Values[2]))) <> 1) and
+       (Pos('https://', Lowercase(Trim(ConfigPage.Values[2]))) <> 1) then
+    begin
+      MsgBox('ApiBaseUrl debe empezar con http:// o https://' + #13#10#13#10 +
+             'Ejemplo: http://192.168.1.10:5080/', mbError, MB_OK);
+      Result := False;
+      exit;
+    end;
     if not RequiredValue(3, 'ClientApiKey') then begin Result := False; exit; end;
     if not RequiredValue(4, 'BypassHmacSecret') then begin Result := False; exit; end;
     if not RequiredValue(5, 'AdminPin') then begin Result := False; exit; end;
@@ -274,10 +303,33 @@ var
   ResultCode: Integer;
 begin
   Exec(ExpandConstant('{cmd}'), '/C taskkill /IM {#AppExeName} /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Get-ScheduledTask -TaskName ''QualityLockClient'' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue"',
+  // schtasks.exe en vez de Unregister-ScheduledTask: esa cmdlet no existe en Windows 7.
+  Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "QualityLockClient" /F',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := '';
+end;
+
+procedure RegisterAutostart();
+var
+  ResultCode: Integer;
+  Ok: Boolean;
+begin
+  Ok := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
+      ExpandConstant('{app}\Register-StationAutostart.ps1') + '" -ExecutablePath "' +
+      ExpandConstant('{app}\{#AppExeName}') + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  if Ok and (ResultCode = 0) then
+    exit;
+
+  MsgBox('No se pudo registrar el inicio automatico de QualityLock (codigo ' +
+    IntToStr(ResultCode) + ').' + #13#10#13#10 +
+    'La estacion queda instalada pero NO arrancara sola. Ejecute como admin:' + #13#10#13#10 +
+    'powershell -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{app}\Register-StationAutostart.ps1') + '" -ExecutablePath "' +
+      ExpandConstant('{app}\{#AppExeName}') + '"',
+    mbError, MB_OK);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -296,5 +348,7 @@ begin
     // captura esos campos -> sobrescribir aqui los borraba.
     if not FileExists(ConfigPath) then
       SaveStringToFile(ConfigPath, BuildConfigJson(), False);
+
+    RegisterAutostart();
   end;
 end;

@@ -4,10 +4,10 @@ QualityLock es una solucion .NET para bloquear estaciones de manufactura y permi
 
 ## Estado del proyecto
 
-- Plataforma: .NET 9.
+- Plataforma: .NET 9 (el cliente de estacion tambien se compila para .NET 6, ver abajo).
 - Backend: ASP.NET Core Web API con Serilog, middleware de correlation id y manejo de errores.
 - Persistencia: MySQL 8 + Dapper/MySqlConnector, tablas con sufijo `_QA`.
-- Cliente: WinForms `net9.0-windows`, pantalla fullscreen, captura de scanner tipo teclado, hotkey de admin, cache local y bypass HMAC.
+- Cliente: WinForms, pantalla fullscreen, captura de scanner tipo teclado, hotkey de admin, cache local y bypass HMAC. Multi-target: `net9.0-windows` para Windows 10/11 y `net6.0-windows` para estaciones Windows 7 SP1 (.NET 9 no arranca ahi). Mismo codigo, sin `#if`; se generan instaladores separados (`QualityLockStation-win-*` y `QualityLockStation-win7-*`).
 - Pruebas: unitarias de Application e integracion basica de `/health`.
 
 Documentacion extendida:

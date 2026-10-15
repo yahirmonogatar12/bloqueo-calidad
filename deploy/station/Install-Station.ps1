@@ -60,6 +60,14 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# Este script arma la config con [ordered] y ConvertTo-Json, ambos de PowerShell 3.0.
+# Windows 7 trae PowerShell 2.0 de fabrica: ahi hay que usar el instalador EXE (escribe
+# el appsettings.json por su cuenta) o subir a WMF 5.1.
+if ($PSVersionTable.PSVersion.Major -lt 3) {
+    throw ("Se requiere PowerShell 3.0 o superior (detectado {0}). En Windows 7 use " +
+           "QualityLockStation-win7-x86.exe / -win7-x64.exe, o instale WMF 5.1." -f $PSVersionTable.PSVersion)
+}
+
 $exeName = "QualityLock.Client.WinForms.exe"
 $sourceDirPath = (Resolve-Path -LiteralPath $SourceDir).ProviderPath
 $installDirPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)

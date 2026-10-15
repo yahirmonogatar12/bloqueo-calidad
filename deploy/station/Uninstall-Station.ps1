@@ -18,8 +18,8 @@ Get-Process -Name "QualityLock.Client.WinForms" -ErrorAction SilentlyContinue |
 Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run" -Name "QualityLockClient" -ErrorAction SilentlyContinue
-Get-ScheduledTask -TaskName "QualityLockClient" -ErrorAction SilentlyContinue |
-    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+# schtasks.exe en vez de Unregister-ScheduledTask: esa cmdlet no existe en Windows 7.
+& (Join-Path $env:SystemRoot "System32\schtasks.exe") /Delete /TN "QualityLockClient" /F > $null 2>&1
 
 # Restaurar Task Manager si quedo deshabilitado
 $reg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\System"

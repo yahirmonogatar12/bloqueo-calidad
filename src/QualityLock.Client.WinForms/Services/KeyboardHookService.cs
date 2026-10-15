@@ -52,7 +52,8 @@ public sealed class KeyboardHookService : IDisposable
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN))
+        // Cast explicito: el IntPtr numerico (comparar contra int sin cast) es de .NET 7+.
+        if (nCode >= 0 && ((int)wParam == WM_KEYDOWN || (int)wParam == WM_SYSKEYDOWN))
         {
             int vkCode = Marshal.ReadInt32(lParam);
 

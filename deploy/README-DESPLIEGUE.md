@@ -22,7 +22,7 @@ por HTTP; nunca tocan MySQL directamente.
 | Archivo | Donde se ejecuta | Que hace |
 |---|---|---|
 | `Publish-All.ps1` | maquina de build | Publica API y cliente en Release |
-| `station/Build-StationInstaller.ps1` | maquina de build | Compila instaladores EXE x64/x86 con Inno Setup |
+| `station/Build-StationInstaller.ps1` | maquina de build | Compila instaladores EXE x64/x86 con Inno Setup (`-Win7` para la variante Windows 7) |
 | `station/QualityLockStation.iss` | maquina de build | Script Inno Setup del instalador de estacion |
 | `server/Build-ServerPackage.ps1` | maquina de build | Crea paquete portable de servidor |
 | `New-Secrets.ps1` | una vez | Genera `Jwt:SigningKey` y `Auth:ClientApiKey` |
@@ -59,9 +59,78 @@ por HTTP; nunca tocan MySQL directamente.
 cd deploy
 .\Publish-All.ps1 -OutDir C:\QualityLock\publish -AllClientRuntimes
 ```
-Genera `C:\QualityLock\publish\Api`, `...\Client-win-x64` y `...\Client-win-x86`.
+Genera:
+
+| Carpeta | Para |
+|---|---|
+| `Api` | servidor |
+| `Client-win-x64` / `Client-win-x86` | estaciones **Windows 10/11** (.NET 9) |
+| `Client-win7-x64` / `Client-win7-x86` | estaciones **Windows 7 SP1** (.NET 6) |
+
 Self-contained por defecto (no hace falta instalar .NET en el servidor ni en las
 estaciones).
+
+El cliente se publica en dos versiones porque **.NET 9 no arranca en Windows 7**: ahi
+el instalador terminaba bien pero la aplicacion nunca abria. La version de Windows 7
+usa .NET 6, el ultimo runtime que soporta ese SO. Es el mismo codigo fuente, sin `#if`.
+Usa `-SkipWin7Client` si solo necesitas la version moderna.
+
+### Cuidado: los dos paquetes se distinguen por un solo caracter
+
+| EXE | SO | Runtime |
+|---|---|---|
+| `QualityLockStation-win-x86.exe` | Windows 10/11 32 bits | .NET 9 |
+| `QualityLockStation-win7-x86.exe` | **Windows 7** 32 bits | .NET 6 |
+
+Instalar el paquete sin `7` en una Windows 7 **funciona**: Inno valida arquitectura, no
+version de SO. La instalacion termina bien y la app no abre nunca, porque .NET 9 no
+arranca en ese SO. Los instaladores ahora llevan `MinVersion` (`10.0.14393` el moderno,
+`6.1sp1` el de Win7), asi que el paquete equivocado se rechaza con un mensaje claro en vez
+de instalarse en silencio.
+
+### Prerequisitos de la estacion Windows 7
+
+**Self-contained NO evita estos parches**: el host de .NET 6 (`hostfxr`, `coreclr`) enlaza
+contra el Universal CRT y contra firmas SHA-2. Sin ellos el EXE muere antes de ejecutar
+una sola linea de C#: sin ventana, sin error, sin `startup.log`. En una Win7 recien
+formateada faltan todos. Instalar **en este orden y reiniciar**:
+
+| Parche | Por que |
+|---|---|
+| Windows 7 **SP1** | piso minimo de .NET 6 |
+| **KB4474419** | soporte de firma SHA-2 (si falta, lo demas ni instala) |
+| **KB2533623** | carga segura de librerias, la exige el host de .NET |
+| **KB2999226** | Universal CRT (`api-ms-win-crt-*.dll`) |
+| **VC++ 2015-2019 Redistributable** (x64 y x86 segun el paquete) | dependencia nativa del runtime |
+
+Diagnostico en la estacion, en este orden:
+
+1. Ejecutar el EXE a mano desde `cmd` como administrador:
+   `"C:\Program Files\QualityLock\Client\QualityLock.Client.WinForms.exe" --setup`
+2. Mirar `C:\ProgramData\QualityLock\logs\startup.log`:
+   - **No existe / vacio** -> el runtime nunca arranco: falta algun parche de la tabla.
+   - **Tiene lineas** -> el arranque llego a C#; la ultima linea dice por que salio.
+3. Si tampoco hay log, revisar Visor de eventos -> Aplicacion (error de tipo
+   `api-ms-win-crt-runtime-l1-1-0.dll` = falta KB2999226).
+
+> El instalador escribe `appsettings.json` en la primera instalacion, asi que la app
+> arranca directo en la pantalla de bloqueo. Para reabrir la configuracion usar el acceso
+> directo **Configurar QualityLock** (Inicio -> QualityLock), que pasa `--setup`.
+
+### El autostart es la otra causa de "instale y nunca abrio"
+
+La tarea `QualityLockClient` usa **LogonTrigger**: si no se marca *Iniciar QualityLock
+ahora* al final del instalador, la app no aparece hasta el siguiente inicio de sesion.
+Antes esa casilla venia desmarcada; ahora viene marcada.
+
+Y si el registro de la tarea falla, la estacion queda instalada y **no arranca nunca**,
+ni reiniciando. El instalador ahora comprueba el codigo de salida y avisa con el comando
+exacto para reintentarlo a mano. Verificacion manual en la estacion:
+
+```
+schtasks /Query /TN QualityLockClient
+schtasks /Run   /TN QualityLockClient
+```
 
 Si falta Inno Setup para el paso de instaladores:
 
@@ -95,7 +164,19 @@ cd deploy
     -SecretsFile C:\QualityLock\server.env
 ```
 
-Esto genera `QualityLockStation-win-x64.exe` y `QualityLockStation-win-x86.exe`.
+Esto genera `QualityLockStation-win-x64.exe` y `QualityLockStation-win-x86.exe`
+(Windows 10/11). Para las estaciones Windows 7, repite con `-Win7`:
+
+```powershell
+.\station\Build-StationInstaller.ps1 `
+    -PublishRoot C:\QualityLock\publish `
+    -OutDir C:\QualityLock\installers `
+    -SecretsFile C:\QualityLock\server.env `
+    -Win7
+```
+
+Esto genera `QualityLockStation-win7-x64.exe` y `QualityLockStation-win7-x86.exe`.
+
 El builder toma `Auth__ClientApiKey` y `BypassHmacSecret` del `.env` para que el
 instalador los muestre prellenados. Trata esos EXE como sensibles: contienen claves
 compartidas de estaciones.
@@ -147,8 +228,16 @@ Invoke-WebRequest http://192.168.1.10:5080/health   # -> 200 Healthy
 
 Copia a la estacion el instalador que corresponda:
 
-- Windows 64 bits: `C:\QualityLock\installers\QualityLockStation-win-x64.exe`
-- Windows 32 bits: `C:\QualityLock\installers\QualityLockStation-win-x86.exe`
+- Windows 10/11, 64 bits: `QualityLockStation-win-x64.exe`
+- Windows 10/11, 32 bits: `QualityLockStation-win-x86.exe`
+- Windows 7 SP1, 64 bits: `QualityLockStation-win7-x64.exe`
+- Windows 7 SP1, 32 bits: `QualityLockStation-win7-x86.exe`
+
+> **Windows 7:** usa siempre el paquete `win7-*`; el normal instala pero no abre. Requiere
+> Windows 7 **SP1** con las actualizaciones de plataforma habituales (KB2533623 y el
+> soporte de firma SHA-2, KB4474419). El Universal CRT va incluido en el paquete, asi
+> que KB2999226 no hace falta. `Install-Station.ps1` no sirve en Windows 7 porque
+> PowerShell 2.0 no tiene `ConvertTo-Json`: usa el instalador EXE.
 
 Ejecutalo como Administrador. El instalador pedira:
 

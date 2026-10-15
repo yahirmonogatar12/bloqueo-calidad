@@ -1,7 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- net6.0 existe solo para el cliente de Windows 7; API y demas siguen en net9.0. -->
+    <TargetFrameworks>net9.0;net6.0</TargetFrameworks>
+    <!-- El TFM viejo no obliga a escribir C# viejo: estas features son solo de compilador. -->
+    <LangVersion>latest</LangVersion>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

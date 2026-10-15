@@ -770,8 +770,9 @@ public class StationSetupForm : Form
                 if (!File.Exists(path)) continue;
 
                 var doc = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+                // Re-parsear = desanclar del documento padre. JsonNode.DeepClone es .NET 8+.
                 if (doc?[sectionName] is JsonNode section)
-                    return section.DeepClone();
+                    return JsonNode.Parse(section.ToJsonString());
             }
             catch
             {

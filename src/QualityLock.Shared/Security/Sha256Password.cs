@@ -14,7 +14,8 @@ public static class Sha256Password
     public static string Hash(string password)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(password ?? string.Empty));
-        return Convert.ToHexStringLower(bytes);
+        // Convert.ToHexStringLower es .NET 9; Shared va a net6.0 para correr en Windows 7.
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     /// <summary>

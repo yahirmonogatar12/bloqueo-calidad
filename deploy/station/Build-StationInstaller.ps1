@@ -29,6 +29,11 @@
 
 .EXAMPLE
     .\Build-StationInstaller.ps1 -Runtime win-x64 -SourceDir C:\QualityLock\publish\Client-win-x64
+
+.EXAMPLE
+    # Paquetes para estaciones Windows 7 (cliente net6.0-windows):
+    #   QualityLockStation-win7-x64.exe / QualityLockStation-win7-x86.exe
+    .\Build-StationInstaller.ps1 -PublishRoot C:\QualityLock\publish -Win7
 #>
 [CmdletBinding()]
 param(
@@ -36,6 +41,9 @@ param(
     [string]$SourceDir = "",
     [string]$OutDir = ".\installer",
     [ValidateSet("win-x64", "win-x86", "both")] [string]$Runtime = "both",
+    # Empaqueta el cliente net6.0-windows (Client-win7-*) y produce
+    # QualityLockStation-win7-x64.exe / -win7-x86.exe para estaciones Windows 7.
+    [switch]$Win7,
     [string]$InnoCompiler = "",
     [string]$AppVersion = "",
     [string]$SecretsFile = "",
@@ -173,12 +181,21 @@ function Resolve-ClientSource {
     }
 
     $publishRootPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PublishRoot)
-    $candidates = @(
-        (Join-Path $publishRootPath "Client-$TargetRuntime")
-    )
 
-    if ($TargetRuntime -eq "win-x64") {
-        $candidates += (Join-Path $publishRootPath "Client")
+    if ($Win7) {
+        $candidates = @(
+            (Join-Path $publishRootPath ("Client-win7-" + $TargetRuntime.Replace("win-", ""))),
+            (Join-Path $publishRootPath "Client-win7")
+        )
+    }
+    else {
+        $candidates = @(
+            (Join-Path $publishRootPath "Client-$TargetRuntime")
+        )
+
+        if ($TargetRuntime -eq "win-x64") {
+            $candidates += (Join-Path $publishRootPath "Client")
+        }
     }
 
     foreach ($candidate in $candidates) {
@@ -274,11 +291,15 @@ foreach ($targetRuntime in $runtimes) {
     }
     if (-not $version) { $version = "1.0.0" }
 
-    Write-Host "Compilando instalador $targetRuntime desde $sourcePath ..." -ForegroundColor Cyan
+    # AppArch fija la arquitectura (x86/x64); AppSuffix solo nombra el EXE resultante.
+    $appSuffix = if ($Win7) { "win7-" + $targetRuntime.Replace("win-", "") } else { $targetRuntime }
+
+    Write-Host "Compilando instalador $appSuffix desde $sourcePath ..." -ForegroundColor Cyan
     & $iscc `
         "/DSourceDir=$sourcePath" `
         "/DOutputDir=$outDirPath" `
         "/DAppArch=$targetRuntime" `
+        "/DAppSuffix=$appSuffix" `
         "/DAppVersion=$version" `
         "/DDefaultStationCode=$StationCode" `
         "/DDefaultLinea=$Linea" `
@@ -296,7 +317,7 @@ foreach ($targetRuntime in $runtimes) {
         throw "Fallo la compilacion del instalador $targetRuntime."
     }
 
-    $installerPath = Join-Path $outDirPath "QualityLockStation-$targetRuntime.exe"
+    $installerPath = Join-Path $outDirPath "QualityLockStation-$appSuffix.exe"
     $built += $installerPath
 }
 
