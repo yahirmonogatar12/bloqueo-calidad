@@ -84,3 +84,52 @@ public interface IHeartbeatRepository
 {
     Task InsertAsync(ClientHeartbeat heartbeat, CancellationToken ct = default);
 }
+
+public interface IVisionHistoryRepository
+{
+    /// <summary>
+    /// Ultima inspeccion de Vision (AOI) del barcode en <c>history_vision</c>, por fecha de
+    /// inspeccion. Null si el barcode nunca paso por Vision.
+    /// </summary>
+    Task<VisionInspection?> GetLastAsync(string barcode, CancellationToken ct = default);
+
+    /// <summary>
+    /// Que fallo en una inspeccion NG (<c>history_vision_defects</c>, lo llena el watcher de
+    /// Vision desde el SHT). Vacio si la pieza vino del .shlog o la tabla aun no existe.
+    /// </summary>
+    Task<IReadOnlyList<VisionDefect>> GetDefectsAsync(string sourceUid, CancellationToken ct = default);
+}
+
+public record VisionInspection
+{
+    public string SourceUid { get; init; } = "";
+    public string Result { get; init; } = "";
+    public DateTime? InspectedAt { get; init; }
+    public string? Machine { get; init; }
+}
+
+public record VisionDefect
+{
+    public string TestName { get; init; } = "";
+    public string Position { get; init; } = "";
+    public string SubTest { get; init; } = "";
+    public string ValueText { get; init; } = "";
+    public double? ValueNum { get; init; }
+}
+
+public interface IVisionRejectionRepository
+{
+    /// <summary>Guarda un escaneo rechazado por la verificacion MES (vision_check_rejections_QA).</summary>
+    Task AddAsync(VisionRejection rejection, CancellationToken ct = default);
+}
+
+/// <summary>Type: SIN_HISTORIAL | NG | NO_EBR. Machine/InspectedAt: ultima inspeccion (solo NG).</summary>
+public record VisionRejection(
+    DateTime RejectedAtUtc,
+    string StationCode,
+    string Line,
+    string Code,
+    string Type,
+    string Reason,
+    string? Machine,
+    DateTime? InspectedAt);

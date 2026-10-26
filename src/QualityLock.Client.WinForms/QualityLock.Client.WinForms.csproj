@@ -7,6 +7,7 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-windows'">
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.4" />
+    <PackageReference Include="System.IO.Ports" Version="9.0.4" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
@@ -14,6 +15,7 @@
          netstandard2.0 "no probados" para net6, y una decena de DLLs extra. -->
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="6.0.1" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="6.0.0" />
+    <PackageReference Include="System.IO.Ports" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,6 +25,8 @@
     <Content Include="LOGO.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- Sonido del aviso de escaneo rechazado (verificacion de Vision). Dentro del exe. -->
+    <EmbeddedResource Include="NG.wav" LogicalName="QualityLock.NG.wav" />
   </ItemGroup>
 
   <PropertyGroup>

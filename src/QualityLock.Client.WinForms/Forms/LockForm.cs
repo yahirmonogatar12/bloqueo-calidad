@@ -26,6 +26,8 @@ public partial class LockForm : Form
     private readonly KeyboardHookService _keyHook;
     private ExternalWindowGuardService _windowGuard;
     private ExternalInputFocusService _qrInputFocus;
+    private readonly SerialScannerService _serialScanner;
+    private SerialScannerLogForm? _serialScannerLogForm;
 
     // ── timers ────────────────────────────────────────────────
     private System.Windows.Forms.Timer _clockTimer = null!;
@@ -74,7 +76,7 @@ public partial class LockForm : Form
         OfflineSyncService offlineSync, OperatorCacheService operatorCache,
         int autoLockSeconds, int scanMaxAvgKeyMs, bool requireScan,
         WindowAccessGuardOptions windowGuardOptions, QrInputFocusOptions qrInputFocusOptions,
-        bool freeMode = false)
+        SerialScannerOptions serialScannerOptions, bool freeMode = false)
     {
         _freeMode = freeMode;
         _stationCode = stationCode;
@@ -96,6 +98,8 @@ public partial class LockForm : Form
         _windowGuard.AuthorizationRequired += WindowGuard_AuthorizationRequired;
         _windowGuard.AuthorizationClosed += WindowGuard_AuthorizationClosed;
         _qrInputFocus = new ExternalInputFocusService(qrInputFocusOptions);
+        _serialScanner = new SerialScannerService(serialScannerOptions);
+        _serialScanner.CodeReceived += SerialScanner_CodeReceived;
 
         BuildUI();
         SetupTimers();
@@ -450,9 +454,21 @@ public partial class LockForm : Form
                 _scanDiagnostics ? Color.Cyan : Color.FromArgb(255, 170, 90));
         };
 
+        var itemSerial = new ToolStripMenuItem("📟  Escáner COM");
+        itemSerial.Click += (_, _) =>
+        {
+            if (_serialScannerLogForm is null || _serialScannerLogForm.IsDisposed)
+            {
+                _serialScannerLogForm = new SerialScannerLogForm(_serialScanner);
+                _serialScannerLogForm.Show();
+            }
+            _serialScannerLogForm.Activate();
+        };
+
         menu.Items.Add(itemSetup);
         menu.Items.Add(itemRefresh);
         menu.Items.Add(itemDiag);
+        menu.Items.Add(itemSerial);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(itemLock);
 
@@ -531,6 +547,7 @@ public partial class LockForm : Form
             ConfigureWindowGuardTimer();
 
             _qrInputFocus = new ExternalInputFocusService(QrInputFocusOptions.FromConfiguration(config));
+            _serialScanner.Restart(SerialScannerOptions.FromConfiguration(config));
         }
         catch
         {
@@ -673,6 +690,9 @@ public partial class LockForm : Form
     {
         base.OnShown(e);
 
+        // El escaner por COM corre en todos los modos (tambien Free: ahi solo teclea).
+        _serialScanner.Start();
+
         // Modo Free: estacion sin personal. Sin bloqueo, sin keyhook, sin foco al escaner.
         // La ventana queda oculta (solo bandeja); el guard de ventanas sigue cronometrando.
         if (_freeMode)
@@ -729,6 +749,7 @@ public partial class LockForm : Form
         }
         SetTaskManagerEnabled(true);    // always restore on exit
         _keyHook.Uninstall();
+        _serialScanner.Dispose();
         _clockTimer.Dispose();
         _heartbeatTimer.Dispose();
         _autoLockTimer.Dispose();
@@ -756,6 +777,77 @@ public partial class LockForm : Form
         _txtBadge.Clear();
         _scanDetector.Reset();
 
+        await ProcessBadgeInputAsync(badge, cameFromScanner, avgMs);
+    }
+
+    /// <summary>
+    /// Escaneo recibido por el puerto COM (hilo del puerto serie). Bloqueada: va directo al
+    /// desbloqueo de esta estacion y NUNCA se teclea, asi ningun escaneo llega a otra app
+    /// aunque la pantalla de bloqueo pierda el foco. Desbloqueada (o modo Free, o con un
+    /// dialogo modal abierto): se teclea donde este el cursor, igual que un escaner HID.
+    /// </summary>
+    private void SerialScanner_CodeReceived(string code)
+    {
+        if (_isLocked && !_freeMode && !_modalOpen)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            // Sin el codigo en el log: un gafete es una credencial.
+            _serialScanner.Log($"Gafete recibido por COM ({code.Length} caracteres).");
+            BeginInvoke(() => _ = ProcessBadgeInputAsync(code, cameFromScanner: true, avgMs: 0));
+            return;
+        }
+
+        // Con un dialogo de QualityLock abierto (contrasena, autorizacion de ventana) el codigo
+        // es un gafete para ese dialogo: no pasa por la verificacion MES.
+        if (!_modalOpen && _serialScanner.Options.RequireVisionOk && !PassesVisionCheck(code))
+            return;
+
+        _serialScanner.Type(code);
+    }
+
+    private const int VisionCheckTimeoutMs = 2000;
+    private ScanRejectedForm? _scanRejectedForm;
+
+    /// <summary>
+    /// Verificacion MES antes de teclear: solo EBR cuya ultima inspeccion de Vision fue OK.
+    /// Corre en el hilo del puerto serie y lo bloquea hasta tener respuesta, asi los codigos
+    /// siguientes esperan en orden. Sin respuesta del MES = rechazado: nada entra sin verificar.
+    /// </summary>
+    private bool PassesVisionCheck(string code)
+    {
+        if (IsDisposed || !IsHandleCreated) return false;
+
+        // La llamada HTTP se hace en el hilo de UI, como todas las de ApiClientService (no es
+        // thread-safe: comparte el token); este hilo solo espera el resultado con timeout.
+        var result = new TaskCompletionSource<VisionCheckResponse?>();
+        BeginInvoke(async () =>
+        {
+            using var cts = new CancellationTokenSource(VisionCheckTimeoutMs);
+            try { result.TrySetResult(await _api.CheckVisionAsync(code, cts.Token)); }
+            catch { result.TrySetResult(null); }
+        });
+        var check = result.Task.Wait(VisionCheckTimeoutMs + 500) ? result.Task.Result : null;
+
+        if (check is { Allowed: true })
+        {
+            _serialScanner.Log($"MES OK: {code} (Visión {check.InspectedAt:yyyy-MM-dd HH:mm}, {check.Machine}).");
+            return true;
+        }
+
+        var reason = check?.Reason ?? "Sin respuesta del MES.";
+        _serialScanner.Log($"RECHAZADO: {code} — {reason}");
+        BeginInvoke(() =>
+        {
+            if (_scanRejectedForm is null || _scanRejectedForm.IsDisposed)
+                _scanRejectedForm = new ScanRejectedForm();
+            _scanRejectedForm.ShowRejection(ScanRejectedForm.TitleFor(code, check), code, reason);
+        });
+        return false;
+    }
+
+    /// <summary>Gafete ya completo: del campo oculto (escaner HID / tecleo) o del puerto COM.</summary>
+    private async Task ProcessBadgeInputAsync(string badge, bool cameFromScanner, double avgMs)
+    {
         if (string.IsNullOrEmpty(badge) || _processing) return;
 
         // Modo diagnostico (calibracion de escaner): SOLO mide y muestra la velocidad,

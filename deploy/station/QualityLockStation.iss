@@ -110,6 +110,36 @@ var
   ConfigPage: TInputQueryWizardPage;
   GuardPage: TInputQueryWizardPage;
   ScanPage: TInputOptionWizardPage;
+  // Actualizacion: ya hay config en ProgramData -> no se pregunta nada y se conserva.
+  ExistingConfig: Boolean;
+  ExistingStation: string;
+  ExistingLinea: string;
+
+function ConfigFilePath(): string;
+begin
+  Result := ExpandConstant('{commonappdata}\QualityLock\appsettings.json');
+end;
+
+// Valor de una clave string de primer nivel ("StationCode": "ICT-01"). Sin parser JSON:
+// basta para mostrar estacion/linea en el resumen; '' si no la encuentra.
+function JsonStringValue(Json, Key: string): string;
+var
+  P: Integer;
+begin
+  Result := '';
+  P := Pos('"' + Key + '"', Json);
+  if P = 0 then exit;
+  Json := Copy(Json, P + Length(Key) + 2, MaxInt);
+  P := Pos(':', Json);
+  if P = 0 then exit;
+  Json := Copy(Json, P + 1, MaxInt);
+  P := Pos('"', Json);
+  if (P = 0) or (Trim(Copy(Json, 1, P - 1)) <> '') then exit;
+  Json := Copy(Json, P + 1, MaxInt);
+  P := Pos('"', Json);
+  if P > 0 then
+    Result := Copy(Json, 1, P - 1);
+end;
 
 function JsonEscape(Value: string): string;
 begin
@@ -194,7 +224,16 @@ begin
 end;
 
 procedure InitializeWizard();
+var
+  Json: AnsiString;
 begin
+  ExistingConfig := FileExists(ConfigFilePath());
+  if ExistingConfig and LoadStringFromFile(ConfigFilePath(), Json) then
+  begin
+    ExistingStation := JsonStringValue(String(Json), 'StationCode');
+    ExistingLinea := JsonStringValue(String(Json), 'Linea');
+  end;
+
   ConfigPage := CreateInputQueryPage(
     wpSelectDir,
     'Configuracion inicial de estacion',
@@ -298,6 +337,28 @@ begin
   end;
 end;
 
+// Al actualizar, las paginas de configuracion no se muestran: sus valores no se usarian
+// (CurStepChanged solo escribe la config si no existe) y confundian.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := ExistingConfig and
+    ((PageID = ConfigPage.ID) or (PageID = GuardPage.ID) or (PageID = ScanPage.ID));
+end;
+
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
+  MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := MemoDirInfo + NewLine + NewLine;
+  if ExistingConfig then
+    Result := Result + 'Configuracion: se conserva la actual (no se modifica)' + NewLine +
+      Space + 'Estacion: ' + ExistingStation + '   Linea: ' + ExistingLinea + NewLine +
+      Space + ConfigFilePath()
+  else
+    Result := Result + 'Configuracion: nueva' + NewLine +
+      Space + 'Estacion: ' + Trim(ConfigPage.Values[0]) + '   Linea: ' + Trim(ConfigPage.Values[1]) + NewLine +
+      Space + ConfigFilePath();
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): string;
 var
   ResultCode: Integer;
@@ -340,7 +401,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     ConfigDir := ExpandConstant('{commonappdata}\QualityLock');
-    ConfigPath := ConfigDir + '\appsettings.json';
+    ConfigPath := ConfigFilePath();
     ForceDirectories(ConfigDir);
     // Solo escribir la config en la PRIMERA instalacion. Al reinstalar/actualizar, la
     // config existente es la fuente de verdad (se edita con --setup, que guarda TODO:

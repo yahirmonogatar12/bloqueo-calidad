@@ -341,7 +341,9 @@ para hacer click como respaldo.
 - **Actualizar la API:** detener el servicio, reemplazar binarios en `C:\QualityLock\Api`,
   arrancar. La config (variables del servicio) se conserva.
 - **Actualizar una estacion:** volver a correr el instalador x64/x86 correspondiente
-  (reemplaza binarios y vuelve a pedir la configuracion local).
+  (reemplaza binarios y conserva `C:\ProgramData\QualityLock\appsettings.json`: con config
+  existente no pide nada y el resumen muestra estacion/linea que se conservan). Para
+  cambiar la config usar "Configurar QualityLock" (`--setup`).
 - **Refrescar usuarios en una estacion sin reiniciar:** menu de la bandeja →
   **Refrescar usuarios** (o esperar el refresco automatico cada 15 min).
 

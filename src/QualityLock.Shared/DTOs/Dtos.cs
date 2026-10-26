@@ -18,6 +18,18 @@ public record BadgeValidationResponse(
     StationSnapshot Station,
     string? Role = null);
 
+/// <summary>
+/// Verificacion MES de un codigo escaneado antes de teclearlo en la prueba (ICT):
+/// solo se permite si su ultima inspeccion de Vision fue OK.
+/// </summary>
+public record VisionCheckResponse(
+    string Code,
+    bool Allowed,
+    string Reason,
+    string? LastResult = null,
+    DateTime? InspectedAt = null,
+    string? Machine = null);
+
 public record StationSnapshot(
     string StationCode,
     string StationName,

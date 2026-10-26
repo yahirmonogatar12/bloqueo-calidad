@@ -19,6 +19,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IAdminOverrideRepository, AdminOverrideRepository>();
         services.AddScoped<IHeartbeatRepository, HeartbeatRepository>();
+        services.AddScoped<IVisionHistoryRepository, VisionHistoryRepository>();
+        services.AddScoped<IVisionRejectionRepository, VisionRejectionRepository>();
 
         services.AddScoped<IBadgeValidationService, BadgeValidationService>();
         services.AddScoped<ISessionService, SessionService>();
@@ -28,6 +30,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IStationBootstrapService, StationBootstrapService>();
         services.AddScoped<IStationRegistrationService, StationRegistrationService>();
         services.AddScoped<IAdminAuthService, AdminAuthService>();
+        services.AddScoped<IVisionCheckService, VisionCheckService>();
 
         return services;
     }

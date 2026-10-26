@@ -109,6 +109,7 @@ static class Program
         var freeMode = string.Equals(config["StationMode"], "Free", StringComparison.OrdinalIgnoreCase);
         var windowGuardOptions = WindowAccessGuardOptions.FromConfiguration(config);
         var qrInputFocusOptions = QrInputFocusOptions.FromConfiguration(config);
+        var serialScannerOptions = SerialScannerOptions.FromConfiguration(config);
 
         // Un ApiBaseUrl mal escrito (sin "http://", una errata) hacia que new Uri lanzara
         // aqui, antes de pintar nada: la estacion moria en silencio y --setup -- que existe
@@ -167,6 +168,7 @@ static class Program
             freeMode = string.Equals(config["StationMode"], "Free", StringComparison.OrdinalIgnoreCase);
             windowGuardOptions = WindowAccessGuardOptions.FromConfiguration(config);
             qrInputFocusOptions = QrInputFocusOptions.FromConfiguration(config);
+            serialScannerOptions = SerialScannerOptions.FromConfiguration(config);
 
             // Rebuild HttpClient with potentially new base URL
             TryParseApiBase(apiBaseUrl, out apiUri);
@@ -201,7 +203,7 @@ static class Program
 
         var lockForm = new LockForm(stationCode, api, localState, bypass, safeMode, adminPin,
             offlineSync, operatorCache, autoLockSeconds, scanMaxAvgKeyMs, requireScan,
-            windowGuardOptions, qrInputFocusOptions, freeMode);
+            windowGuardOptions, qrInputFocusOptions, serialScannerOptions, freeMode);
 
         // --diag: arranca en modo diagnostico de escaner (calibracion del umbral).
         if (args.Contains("--diag", StringComparer.OrdinalIgnoreCase))

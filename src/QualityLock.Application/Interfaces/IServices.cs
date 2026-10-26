@@ -39,6 +39,17 @@ public interface IStationRegistrationService
     Task<RegisterStationResponse> RegisterAsync(RegisterStationRequest request, CancellationToken ct = default);
 }
 
+public interface IVisionCheckService
+{
+    /// <summary>
+    /// Permite teclear el codigo en la prueba solo si es un barcode EBR cuya ultima
+    /// inspeccion de Vision fue OK. Nunca lanza por un rechazo: Allowed=false + motivo.
+    /// Cada rechazo se guarda con la estacion y linea que escanearon.
+    /// </summary>
+    Task<VisionCheckResponse> CheckAsync(
+        string code, string stationCode = "", string line = "", CancellationToken ct = default);
+}
+
 public interface IAdminAuthService
 {
     /// <summary>

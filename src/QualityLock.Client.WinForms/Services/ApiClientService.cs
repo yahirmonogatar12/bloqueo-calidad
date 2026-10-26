@@ -137,6 +137,23 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         }
     }
 
+    /// <summary>Verificacion MES (Vision OK) de un codigo antes de teclearlo. Null si no hay respuesta.</summary>
+    public async Task<VisionCheckResponse?> CheckVisionAsync(string code, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await SendAuthedAsync(
+                () => http.GetAsync(
+                    $"api/mes/vision-check?code={Uri.EscapeDataString(code)}&line={Uri.EscapeDataString(Line)}", ct), ct);
+            if (resp is null || !resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<VisionCheckResponse>(JsonOpts, ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<StartSessionResponse?> StartSessionAsync(StartSessionRequest request, CancellationToken ct = default)
     {
         try

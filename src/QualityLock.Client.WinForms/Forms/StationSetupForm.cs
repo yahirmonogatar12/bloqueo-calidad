@@ -3,6 +3,7 @@ using QualityLock.Client.WinForms.Services;
 using QualityLock.Shared.Constants;
 using QualityLock.Shared.DTOs;
 using QualityLock.Shared.Enums;
+using System.IO.Ports;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -70,6 +71,15 @@ public class StationSetupForm : Form
     private TextBox _txtQrInputFallbackPoint = null!;
     private QrInputCandidate? _selectedQrInputTarget;
     private Point? _qrInputFallbackPoint;
+
+    // ── Escáner por puerto COM ─────────────────────────────────
+    private CheckBox _chkSerialScannerEnabled = null!;
+    private ComboBox _cmbSerialPort = null!;
+    private ComboBox _cmbSerialBaud = null!;
+    private NumericUpDown _numSerialKeyDelay = null!;
+    private NumericUpDown _numSerialSilence = null!;
+    private CheckBox _chkSerialSendEnter = null!;
+    private CheckBox _chkSerialRequireVisionOk = null!;
 
     // ── Acciones ──────────────────────────────────────────────
     private Button _btnRegister = null!;
@@ -333,6 +343,69 @@ public class StationSetupForm : Form
         bodyQrInput.Controls.Add(MakeHint("Orden: input detectado; si falla, click en el punto guardado.", LabelX, 224));
         scroll.Controls.Add(cardQrInput);
 
+        // ── Tarjeta: Escáner serie (COM) ──
+        var cardSerial = MakeCard("Escáner serie (COM)", out var bodySerial, 276);
+        _chkSerialScannerEnabled = new CheckBox
+        {
+            Text = "Recibir escáner por puerto COM y teclearlo como HID",
+            Location = new Point(LabelX, 6),
+            AutoSize = true,
+            Checked = false,
+            Font = Font
+        };
+        bodySerial.Controls.Add(_chkSerialScannerEnabled);
+
+        bodySerial.Controls.Add(MakeLabel("Puerto COM:", LabelX, 44));
+        _cmbSerialPort = new ComboBox
+        {
+            Location = new Point(FieldX, 42), Width = 120, Font = Font,
+            DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat
+        };
+        bodySerial.Controls.Add(_cmbSerialPort);
+        var btnRefreshPorts = MakeButton("↻", FieldX + 130, 38, 44, Color.FromArgb(50, 110, 200));
+        btnRefreshPorts.Height = 32;
+        btnRefreshPorts.Click += (_, _) => RefreshSerialPorts();
+        bodySerial.Controls.Add(btnRefreshPorts);
+
+        bodySerial.Controls.Add(MakeLabel("Baudios:", LabelX, 80));
+        _cmbSerialBaud = new ComboBox
+        {
+            Location = new Point(FieldX, 78), Width = 120, Font = Font,
+            DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat
+        };
+        _cmbSerialBaud.Items.AddRange(["9600", "19200", "38400", "57600", "115200"]);
+        _cmbSerialBaud.SelectedIndex = 0;
+        bodySerial.Controls.Add(_cmbSerialBaud);
+
+        bodySerial.Controls.Add(MakeLabel("Retardo (ms):", LabelX, 116));
+        _numSerialKeyDelay = MakeNumeric(FieldX, 114, 0, 50, 0, 1);
+        bodySerial.Controls.Add(_numSerialKeyDelay);
+        bodySerial.Controls.Add(MakeHint("Entre letras. 0 = todo de golpe (más rápido).", FieldX + 100, 116));
+
+        bodySerial.Controls.Add(MakeLabel("Fin sin CR (ms):", LabelX, 152));
+        _numSerialSilence = MakeNumeric(FieldX, 150, 10, 1000, 30, 10);
+        bodySerial.Controls.Add(_numSerialSilence);
+        bodySerial.Controls.Add(MakeHint("Silencio que cierra el código si no llega CR/LF.", FieldX + 100, 152));
+
+        _chkSerialSendEnter = new CheckBox
+        {
+            Text = "Enviar Enter al final", Location = new Point(FieldX, 184),
+            AutoSize = true, Checked = true, Font = Font
+        };
+        bodySerial.Controls.Add(_chkSerialSendEnter);
+
+        _chkSerialRequireVisionOk = new CheckBox
+        {
+            Text = "Verificar en MES antes de teclear (solo EBR con Visión OK)", Location = new Point(FieldX, 214),
+            AutoSize = true, Checked = false, Font = Font
+        };
+        bodySerial.Controls.Add(_chkSerialRequireVisionOk);
+
+        var serialHint = MakeHint("Escáner en modo USB-COM (CDC/VCP) o RS-232, 8N1. Bloqueada: desbloquea.", LabelX, 248);
+        serialHint.Width = 560;
+        bodySerial.Controls.Add(serialHint);
+        scroll.Controls.Add(cardSerial);
+
         // ── Tarjeta: Ventanas protegidas ──
         var cardWindows = MakeCard("Ventanas protegidas", out var bodyWindows, 312);
         _chkWindowGuardEnabled = new CheckBox
@@ -535,6 +608,7 @@ public class StationSetupForm : Form
             _txtAdminPin.Text = config["AdminPin"] ?? string.Empty;
             LoadQrInputFocusUi(LoadJsonSection("QrInputFocus") ?? DefaultQrInputFocusJson());
             RefreshQrInputWindowsList();
+            LoadSerialScannerUi(LoadJsonSection("SerialScanner"));
             LoadWindowGuardUi(LoadJsonSection("WindowAccessGuard") ?? DefaultWindowAccessGuardJson());
             RefreshOpenWindowsList();
         }
@@ -544,6 +618,7 @@ public class StationSetupForm : Form
             _txtHostName.Text = Environment.MachineName;
             LoadQrInputFocusUi(DefaultQrInputFocusJson());
             RefreshQrInputWindowsList();
+            LoadSerialScannerUi(null);
             LoadWindowGuardUi(DefaultWindowAccessGuardJson());
             RefreshOpenWindowsList();
         }
@@ -657,6 +732,7 @@ public class StationSetupForm : Form
                 root["WindowAccessGuard"] = windowGuard;
 
             root["QrInputFocus"] = BuildQrInputFocusJsonFromUi();
+            root["SerialScanner"] = BuildSerialScannerJsonFromUi();
 
             var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
@@ -666,7 +742,7 @@ public class StationSetupForm : Form
 
             MessageBox.Show(
                 "La configuración se guardó correctamente.\n\n" +
-                "El foco QR externo y las ventanas protegidas se aplican al cerrar " +
+                "El foco QR externo, el escáner COM y las ventanas protegidas se aplican al cerrar " +
                 "esta configuración. Cambios como URL, inactividad y escáner se aplican " +
                 "al reiniciar la pantalla de bloqueo.",
                 "Configuración guardada",
@@ -781,6 +857,55 @@ public class StationSetupForm : Form
         }
 
         return null;
+    }
+
+    private void LoadSerialScannerUi(JsonNode? serialScanner)
+    {
+        var obj = serialScanner as JsonObject;
+        _chkSerialScannerEnabled.Checked = JsonBool(obj, "Enabled", false);
+        var baud = JsonInt(obj, "BaudRate", 9600).ToString();
+        if (!_cmbSerialBaud.Items.Contains(baud))
+            _cmbSerialBaud.Items.Add(baud);
+        _cmbSerialBaud.SelectedItem = baud;
+        _numSerialKeyDelay.Value = Math.Clamp(JsonInt(obj, "KeyDelayMilliseconds", 0), 0, 50);
+        _numSerialSilence.Value = Math.Clamp(JsonInt(obj, "EndOfCodeSilenceMilliseconds", 30), 10, 1000);
+        _chkSerialSendEnter.Checked = JsonBool(obj, "SendEnter", true);
+        _chkSerialRequireVisionOk.Checked = JsonBool(obj, "RequireVisionOk", false);
+        RefreshSerialPorts(JsonString(obj, "PortName"));
+    }
+
+    private JsonNode BuildSerialScannerJsonFromUi()
+        => new JsonObject
+        {
+            ["Enabled"] = _chkSerialScannerEnabled.Checked,
+            ["PortName"] = _cmbSerialPort.SelectedItem as string ?? "",
+            ["BaudRate"] = int.TryParse(_cmbSerialBaud.SelectedItem as string, out var baud) ? baud : 9600,
+            ["KeyDelayMilliseconds"] = (int)_numSerialKeyDelay.Value,
+            ["SendEnter"] = _chkSerialSendEnter.Checked,
+            ["EndOfCodeSilenceMilliseconds"] = (int)_numSerialSilence.Value,
+            ["RequireVisionOk"] = _chkSerialRequireVisionOk.Checked
+        };
+
+    /// <summary>Lista los puertos COM ordenados por numero (COM2 antes que COM10).</summary>
+    private void RefreshSerialPorts(string? keep = null)
+    {
+        keep ??= _cmbSerialPort.SelectedItem as string;
+        var ports = SerialPort.GetPortNames()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(p => int.TryParse(new string(p.Where(char.IsDigit).ToArray()), out var n) ? n : int.MaxValue)
+            .ToList();
+
+        // El puerto guardado se conserva aunque el escaner este desconectado ahora mismo.
+        var saved = ports.FirstOrDefault(p => string.Equals(p, keep, StringComparison.OrdinalIgnoreCase));
+        if (saved is null && !string.IsNullOrWhiteSpace(keep))
+            ports.Add(saved = keep);
+
+        _cmbSerialPort.Items.Clear();
+        _cmbSerialPort.Items.AddRange(ports.Cast<object>().ToArray());
+        if (saved is not null)
+            _cmbSerialPort.SelectedItem = saved;
+        else if (_cmbSerialPort.Items.Count > 0)
+            _cmbSerialPort.SelectedIndex = 0;
     }
 
     private void LoadQrInputFocusUi(JsonNode? qrInputFocus)
