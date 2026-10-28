@@ -2,6 +2,7 @@ using FluentAssertions;
 using Moq;
 using QualityLock.Application.Interfaces;
 using QualityLock.Application.Services;
+using QualityLock.Shared.DTOs;
 
 namespace QualityLock.Application.Tests;
 
@@ -157,6 +158,31 @@ public class VisionCheckServiceTests
 
         r.Allowed.Should().BeFalse();
         r.Reason.Should().Be("Sin registro en Visión.");
+    }
+
+    [Fact]
+    public async Task RepeatedScan_SavesOneRowPerScanWithItsTime()
+    {
+        var t1 = new DateTime(2026, 10, 26, 14, 29, 55, DateTimeKind.Utc);
+        var t2 = t1.AddSeconds(23);
+
+        await _sut.RecordRepeatedScanAsync("ICT-02-03", new RepeatedScanRequest(
+            " " + Barcode + " ", "M2", [new RepeatedScanItem(1, t1), new RepeatedScanItem(2, t2)]));
+
+        var saved = _rejectionRepo.Invocations
+            .Where(i => i.Method.Name == "AddAsync")
+            .Select(i => (VisionRejection)i.Arguments[0])
+            .ToList();
+        saved.Should().HaveCount(2);
+        saved.Select(r => r.RejectedAtUtc).Should().Equal(t1, t2);
+        saved.Should().AllSatisfy(r =>
+        {
+            r.Type.Should().Be("REPETIDO");
+            r.Code.Should().Be(Barcode);
+            r.StationCode.Should().Be("ICT-02-03");
+            r.Line.Should().Be("M2");
+        });
+        saved[1].Reason.Should().Be("Escaneo 2 de la misma PCB en la sesión del escáner COM.");
     }
 
     [Fact]

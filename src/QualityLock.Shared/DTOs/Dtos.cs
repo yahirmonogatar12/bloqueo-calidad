@@ -30,6 +30,15 @@ public record VisionCheckResponse(
     DateTime? InspectedAt = null,
     string? Machine = null);
 
+/// <summary>Escaneo N de la misma PCB dentro de una sesion del escaner COM.</summary>
+public record RepeatedScanItem(int Number, DateTime AtUtc);
+
+/// <summary>
+/// La misma PCB se escaneo 2+ veces en una sesion del escaner COM (de que se conecta el
+/// puerto a que se desconecta). Solo se registra: el escaneo no se bloquea.
+/// </summary>
+public record RepeatedScanRequest(string Code, string Line, IReadOnlyList<RepeatedScanItem> Scans);
+
 public record StationSnapshot(
     string StationCode,
     string StationName,

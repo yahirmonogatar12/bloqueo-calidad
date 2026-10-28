@@ -127,17 +127,24 @@ public class SessionRepository(IDbConnectionFactory factory) : ISessionRepositor
         // cierre es el ultimo heartbeat conocido de esa estacion; si no hay heartbeat
         // posterior al inicio, se usa el inicio (sesion de duracion 0). 'ended_online' = 0
         // porque el cierre lo decide el servidor, no el cliente.
+        //
+        // Corre en cada heartbeat, asi que debe costar casi nada (medido 2026-10-27):
+        //  - open_station_id (generada, indice unico) solo existe en las sesiones abiertas:
+        //    se tocan y bloquean ~15 filas. Con "ended_at_utc IS NULL" recorria las ~18k.
+        //  - El ultimo heartbeat sale de un GROUP BY (skip scan: una entrada del indice por
+        //    estacion). El MAX correlacionado leia las ~90k filas de cada estacion.
+        // Antes: 588 ms promedio, 7.7 s max, y los heartbeats de todas las estaciones se
+        // esperaban entre si (POST /api/heartbeats de 1-3 s). Ahora ~1 ms.
         const string sql = """
             UPDATE station_sessions_QA s
-            SET s.ended_at_utc = GREATEST(
-                    s.started_at_utc,
-                    COALESCE((SELECT MAX(h.sent_at_utc) FROM client_heartbeats_QA h
-                              WHERE h.station_id = s.station_id), s.started_at_utc)),
+            LEFT JOIN (SELECT station_id, MAX(sent_at_utc) AS last_hb
+                       FROM client_heartbeats_QA
+                       GROUP BY station_id) h ON h.station_id = s.station_id
+            SET s.ended_at_utc = GREATEST(s.started_at_utc, COALESCE(h.last_hb, s.started_at_utc)),
                 s.status = 'AutoClosed',
                 s.ended_online = 0
-            WHERE s.ended_at_utc IS NULL
-              AND COALESCE((SELECT MAX(h.sent_at_utc) FROM client_heartbeats_QA h
-                            WHERE h.station_id = s.station_id), s.started_at_utc)
+            WHERE s.open_station_id IS NOT NULL
+              AND COALESCE(h.last_hb, s.started_at_utc)
                   < (UTC_TIMESTAMP() - INTERVAL @StaleMinutes MINUTE)
             """;
 

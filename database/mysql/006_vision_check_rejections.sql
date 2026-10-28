@@ -4,6 +4,8 @@
 -- Los "Sin respuesta del MES" no llegan al servidor y no se registran.
 --
 -- rejection_type: SIN_HISTORIAL | NG | NO_EBR
+--                 REPETIDO = misma PCB escaneada 2+ veces en una sesion del escaner COM
+--                 (no es rechazo, solo registro: una fila por escaneo con su hora).
 -- machine / inspected_at: la ultima inspeccion de Vision (solo en NG). inspected_at va en
 -- hora local, igual que history_vision.log_datetime; rejected_at_utc en UTC como el resto
 -- de las tablas _QA.

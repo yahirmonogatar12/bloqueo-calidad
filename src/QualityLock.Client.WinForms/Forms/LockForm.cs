@@ -798,11 +798,31 @@ public partial class LockForm : Form
         }
 
         // Con un dialogo de QualityLock abierto (contrasena, autorizacion de ventana) el codigo
-        // es un gafete para ese dialogo: no pasa por la verificacion MES.
+        // es un gafete para ese dialogo: no pasa por la verificacion MES ni cuenta como PCB.
+        if (!_modalOpen)
+            ReportIfRepeated(code);
+
         if (!_modalOpen && _serialScanner.Options.RequireVisionOk && !PassesVisionCheck(code))
             return;
 
         _serialScanner.Type(code);
+    }
+
+    /// <summary>
+    /// Misma PCB escaneada 2+ veces en esta sesion del COM (sin importar el resultado de
+    /// Vision): se registra en el MES con la hora de cada escaneo. No bloquea ni espera.
+    /// </summary>
+    private void ReportIfRepeated(string code)
+    {
+        var scans = _serialScanner.Session.Add(code, DateTime.UtcNow);
+        if (scans.Count == 0 || IsDisposed || !IsHandleCreated) return;
+
+        _serialScanner.Log($"PCB repetida: {code} (escaneo {scans[^1].Number} en esta sesión del COM).");
+        _ = Task.Run(async () =>
+        {
+            if (!await _api.ReportRepeatedScanAsync(code, scans))
+                _serialScanner.Log($"No se pudo registrar en el MES la PCB repetida {code}.");
+        });
     }
 
     private const int VisionCheckTimeoutMs = 2000;
@@ -817,25 +837,27 @@ public partial class LockForm : Form
     {
         if (IsDisposed || !IsHandleCreated) return false;
 
-        // La llamada HTTP se hace en el hilo de UI, como todas las de ApiClientService (no es
-        // thread-safe: comparte el token); este hilo solo espera el resultado con timeout.
-        var result = new TaskCompletionSource<VisionCheckResponse?>();
-        BeginInvoke(async () =>
+        // Fuera del hilo de UI: antes la llamada iba por BeginInvoke y su respuesta esperaba
+        // a la UI. Con la UI ocupada, una respuesta del MES de 2 ms se daba por perdida a los
+        // 2 s: ICT-01-03 27/10 15:57:38, EBR30299369922610270138 "Sin respuesta del MES"
+        // con el servidor respondiendo OK en 1.7 ms. El tiempo queda en el log del escaner.
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        VisionCheckResponse? check;
+        using (var cts = new CancellationTokenSource(VisionCheckTimeoutMs))
         {
-            using var cts = new CancellationTokenSource(VisionCheckTimeoutMs);
-            try { result.TrySetResult(await _api.CheckVisionAsync(code, cts.Token)); }
-            catch { result.TrySetResult(null); }
-        });
-        var check = result.Task.Wait(VisionCheckTimeoutMs + 500) ? result.Task.Result : null;
+            var call = Task.Run(() => _api.CheckVisionAsync(code, cts.Token));
+            check = call.Wait(VisionCheckTimeoutMs + 500) ? call.Result : null;
+        }
+        var elapsedMs = watch.ElapsedMilliseconds;
 
         if (check is { Allowed: true })
         {
-            _serialScanner.Log($"MES OK: {code} (Visión {check.InspectedAt:yyyy-MM-dd HH:mm}, {check.Machine}).");
+            _serialScanner.Log($"MES OK: {code} (Visión {check.InspectedAt:yyyy-MM-dd HH:mm}, {check.Machine}) en {elapsedMs} ms.");
             return true;
         }
 
         var reason = check?.Reason ?? "Sin respuesta del MES.";
-        _serialScanner.Log($"RECHAZADO: {code} — {reason}");
+        _serialScanner.Log($"RECHAZADO: {code} — {reason} ({elapsedMs} ms)");
         BeginInvoke(() =>
         {
             if (_scanRejectedForm is null || _scanRejectedForm.IsDisposed)

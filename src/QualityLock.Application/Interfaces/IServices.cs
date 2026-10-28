@@ -48,6 +48,13 @@ public interface IVisionCheckService
     /// </summary>
     Task<VisionCheckResponse> CheckAsync(
         string code, string stationCode = "", string line = "", CancellationToken ct = default);
+
+    /// <summary>
+    /// Registra (no bloquea) los escaneos de una PCB repetida en una sesion del escaner COM:
+    /// una fila REPETIDO por escaneo, con su hora.
+    /// </summary>
+    Task RecordRepeatedScanAsync(
+        string stationCode, RepeatedScanRequest request, CancellationToken ct = default);
 }
 
 public interface IAdminAuthService

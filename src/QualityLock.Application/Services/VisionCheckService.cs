@@ -20,6 +20,19 @@ public class VisionCheckService(
         return result;
     }
 
+    public async Task RecordRepeatedScanAsync(
+        string stationCode, RepeatedScanRequest request, CancellationToken ct = default)
+    {
+        var code = request.Code.Trim();
+        foreach (var scan in request.Scans)
+        {
+            await rejectionRepo.AddAsync(new VisionRejection(
+                scan.AtUtc, stationCode, request.Line.Trim(), code, "REPETIDO",
+                $"Escaneo {scan.Number} de la misma PCB en la sesión del escáner COM.",
+                Machine: null, InspectedAt: null), ct);
+        }
+    }
+
     private async Task<(VisionCheckResponse Result, string Type)> EvaluateAsync(string code, CancellationToken ct)
     {
         // Solo barcodes de tarjeta (EBR...). Etiquetas QR u otros codigos no entran a la prueba.

@@ -78,6 +78,9 @@ public sealed class SerialScannerService : IDisposable
 
     public SerialScannerOptions Options => _options;
 
+    /// <summary>PCBs escaneadas en esta sesion del puerto (se reinicia cada vez que conecta).</summary>
+    public ScanRepeatTracker Session { get; } = new();
+
     public IReadOnlyList<string> RecentLog
     {
         get { lock (_log) return _log.ToArray(); }
@@ -152,6 +155,7 @@ public sealed class SerialScannerService : IDisposable
                 _port = port;
                 _readFailed = false;
                 lock (_rx) _rx.Clear();
+                Session.Reset();   // sesion nueva del escaner: las repeticiones se cuentan de cero
                 _lastOpenError = null;
                 Status = $"Conectado a {_options.PortName} @ {_options.BaudRate}";
                 Log(Status + ".");

@@ -34,40 +34,43 @@ public class ApiClientService(HttpClient http, string stationCode, string client
     // ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Ensures the HttpClient carries a valid bearer token. Acquires a new one
-    /// when missing or near expiry. Returns false if a token could not be obtained
-    /// (e.g. backend offline) — callers should treat that as "offline".
+    /// Returns a valid bearer token, acquiring a new one when missing or near expiry.
+    /// Returns null if a token could not be obtained (e.g. backend offline) — callers
+    /// should treat that as "offline".
+    /// ConfigureAwait(false): quien renueva tiene _tokenLock. Si la renovacion la empezo la
+    /// UI (heartbeat) y la UI se traba, sin esto el candado quedaba tomado y la verificacion
+    /// MES del hilo del escaner esperaba hasta sus 2 s ("Sin respuesta del MES").
     /// </summary>
-    private async Task<bool> EnsureTokenAsync(CancellationToken ct)
+    private async Task<string?> GetTokenAsync(CancellationToken ct)
     {
-        if (_accessToken is not null && DateTime.UtcNow < _tokenExpiresUtc.AddMinutes(-2))
-            return true;
+        var token = _accessToken;
+        if (token is not null && DateTime.UtcNow < _tokenExpiresUtc.AddMinutes(-2))
+            return token;
 
-        await _tokenLock.WaitAsync(ct);
+        await _tokenLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_accessToken is not null && DateTime.UtcNow < _tokenExpiresUtc.AddMinutes(-2))
-                return true;
+            token = _accessToken;
+            if (token is not null && DateTime.UtcNow < _tokenExpiresUtc.AddMinutes(-2))
+                return token;
 
             var resp = await http.PostAsJsonAsync("api/auth/token",
-                new TokenRequest(_stationCode, clientApiKey), ct);
+                new TokenRequest(_stationCode, clientApiKey), ct).ConfigureAwait(false);
 
             if (!resp.IsSuccessStatusCode)
-                return false;
+                return null;
 
-            var body = await resp.Content.ReadFromJsonAsync<TokenResponse>(JsonOpts, ct);
+            var body = await resp.Content.ReadFromJsonAsync<TokenResponse>(JsonOpts, ct).ConfigureAwait(false);
             if (body is null || string.IsNullOrEmpty(body.AccessToken))
-                return false;
+                return null;
 
-            _accessToken = body.AccessToken;
             _tokenExpiresUtc = body.ExpiresAtUtc;
-            http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", _accessToken);
-            return true;
+            _accessToken = body.AccessToken;
+            return body.AccessToken;
         }
         catch
         {
-            return false;
+            return null;
         }
         finally
         {
@@ -79,29 +82,54 @@ public class ApiClientService(HttpClient http, string stationCode, string client
     {
         _accessToken = null;
         _tokenExpiresUtc = DateTime.MinValue;
-        http.DefaultRequestHeaders.Authorization = null;
     }
+
+    /// <summary>
+    /// Olvida el token solo si sigue siendo el rechazado: un 401 atrasado de una peticion
+    /// vieja no debe tirar el token que otra peticion ya renovo.
+    /// </summary>
+    private void InvalidateToken(string rejected)
+        => Interlocked.CompareExchange(ref _accessToken, null, rejected);
 
     /// <summary>
     /// Sends an authenticated request, transparently acquiring a token first and
     /// retrying once if the server rejects the token with 401.
+    /// El token va en cada peticion (no en DefaultRequestHeaders, que no se puede cambiar
+    /// mientras otra peticion lo lee): asi el servicio se puede usar desde cualquier hilo.
+    /// La verificacion MES corre en el hilo del escaner, no en el de la UI.
     /// </summary>
     private async Task<HttpResponseMessage?> SendAuthedAsync(
-        Func<Task<HttpResponseMessage>> send, CancellationToken ct)
+        Func<HttpRequestMessage> build, CancellationToken ct)
     {
-        if (!await EnsureTokenAsync(ct))
+        var token = await GetTokenAsync(ct).ConfigureAwait(false);
+        if (token is null)
             return null;
 
-        var resp = await send();
+        var resp = await SendWithTokenAsync(build, token, ct).ConfigureAwait(false);
         if (resp.StatusCode == HttpStatusCode.Unauthorized)
         {
-            InvalidateToken();
-            if (!await EnsureTokenAsync(ct))
+            InvalidateToken(token);
+            token = await GetTokenAsync(ct).ConfigureAwait(false);
+            if (token is null)
                 return null;
-            resp = await send();
+            resp = await SendWithTokenAsync(build, token, ct).ConfigureAwait(false);
         }
         return resp;
     }
+
+    private Task<HttpResponseMessage> SendWithTokenAsync(
+        Func<HttpRequestMessage> build, string token, CancellationToken ct)
+    {
+        var request = build();
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return http.SendAsync(request, ct);
+    }
+
+    private static HttpRequestMessage Get(string url) => new(HttpMethod.Get, url);
+
+    // JsonContent.Create sin opciones serializa igual que PostAsJsonAsync (JsonSerializerDefaults.Web).
+    private static HttpRequestMessage Json<T>(HttpMethod method, string url, T body)
+        => new(method, url) { Content = JsonContent.Create(body) };
 
     // ─────────────────────────────────────────────────────────
     // API calls
@@ -112,7 +140,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.GetAsync($"api/stations/{stationCodeArg}/bootstrap?line={Uri.EscapeDataString(Line)}", ct), ct);
+                () => Get($"api/stations/{stationCodeArg}/bootstrap?line={Uri.EscapeDataString(Line)}"), ct);
             if (resp is null || !resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<StationBootstrapResponse>(JsonOpts, ct);
         }
@@ -127,7 +155,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.PostAsJsonAsync("api/badges/validate", request, ct), ct);
+                () => Json(HttpMethod.Post, "api/badges/validate", request), ct);
             if (resp is null || !resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<BadgeValidationResponse>(JsonOpts, ct);
         }
@@ -143,8 +171,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.GetAsync(
-                    $"api/mes/vision-check?code={Uri.EscapeDataString(code)}&line={Uri.EscapeDataString(Line)}", ct), ct);
+                () => Get($"api/mes/vision-check?code={Uri.EscapeDataString(code)}&line={Uri.EscapeDataString(Line)}"), ct);
             if (resp is null || !resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<VisionCheckResponse>(JsonOpts, ct);
         }
@@ -154,12 +181,28 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         }
     }
 
+    /// <summary>Registra en el MES una PCB escaneada otra vez en la sesion del COM. False si no se pudo.</summary>
+    public async Task<bool> ReportRepeatedScanAsync(
+        string code, IReadOnlyList<RepeatedScanItem> scans, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await SendAuthedAsync(
+                () => Json(HttpMethod.Post, "api/mes/repeated-scan", new RepeatedScanRequest(code, Line, scans)), ct);
+            return resp is { IsSuccessStatusCode: true };
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<StartSessionResponse?> StartSessionAsync(StartSessionRequest request, CancellationToken ct = default)
     {
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.PostAsJsonAsync("api/sessions/start", request, ct), ct);
+                () => Json(HttpMethod.Post, "api/sessions/start", request), ct);
             if (resp is null || !resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<StartSessionResponse>(JsonOpts, ct);
         }
@@ -173,7 +216,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
     {
         try
         {
-            await SendAuthedAsync(() => http.PostAsJsonAsync("api/sessions/end", request, ct), ct);
+            await SendAuthedAsync(() => Json(HttpMethod.Post, "api/sessions/end", request), ct);
         }
         catch { }
     }
@@ -184,7 +227,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.PostAsJsonAsync("api/events", events, ct), ct);
+                () => Json(HttpMethod.Post, "api/events", events), ct);
             return resp is not null && resp.IsSuccessStatusCode;
         }
         catch
@@ -197,7 +240,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
     {
         try
         {
-            await SendAuthedAsync(() => http.PostAsJsonAsync("api/heartbeats", request, ct), ct);
+            await SendAuthedAsync(() => Json(HttpMethod.Post, "api/heartbeats", request), ct);
         }
         catch { }
     }
@@ -207,7 +250,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.PostAsJsonAsync("api/admin/override", request, ct), ct);
+                () => Json(HttpMethod.Post, "api/admin/override", request), ct);
             if (resp is null || !resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<AdminOverrideResponse>(JsonOpts, ct);
         }
@@ -226,7 +269,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.PostAsJsonAsync("api/auth/admin-login", request, ct), ct);
+                () => Json(HttpMethod.Post, "api/auth/admin-login", request), ct);
             if (resp is null) return null;
 
             // 200 (admin OK) y 401 (no admin / credencial inválida) traen el mismo DTO.
@@ -248,7 +291,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.PostAsJsonAsync("api/auth/user-login", request, ct), ct);
+                () => Json(HttpMethod.Post, "api/auth/user-login", request), ct);
             if (resp is null) return null;
             return await resp.Content.ReadFromJsonAsync<AdminLoginResponse>(JsonOpts, ct);
         }
@@ -277,7 +320,7 @@ public class ApiClientService(HttpClient http, string stationCode, string client
         try
         {
             var resp = await SendAuthedAsync(
-                () => http.PutAsJsonAsync($"api/stations/{request.StationCode}", request, ct), ct);
+                () => Json(HttpMethod.Put, $"api/stations/{request.StationCode}", request), ct);
 
             if (resp is null)
                 return (false, "Backend no disponible o credencial de cliente inválida.");
